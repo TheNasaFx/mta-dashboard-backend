@@ -23,7 +23,7 @@ type Config struct {
 func Get() Config {
 	err := godotenv.Load()
 	if err != nil {
-		log.Println("⚠️ .env файл олдсонгүй. Шууд os.Getenv ашиглана.")
+		log.Println(" .env файл олдсонгүй. Шууд os.Getenv ашиглана.")
 	}
 
 	port, _ := strconv.Atoi(os.Getenv("DB_PORT"))

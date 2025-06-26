@@ -4,9 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TokenMiddleware нь authentication хийхгүй, шууд дараагийн handler руу дамжуулна.
+// TokenMiddleware is now an alias for AuthMiddleware for real token validation
 func TokenMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Next()
-	}
+	return AuthMiddleware()
 }

@@ -1,0 +1,51 @@
+{
+  "results": [
+    {
+      "columns": [
+        { "name": "ID", "type": "NUMBER" },
+        { "name": "CODE", "type": "VARCHAR2" },
+        { "name": "NAME", "type": "VARCHAR2" },
+        { "name": "OFFICE_CODE", "type": "VARCHAR2" },
+        { "name": "CREATED_DATE", "type": "DATE" },
+        { "name": "REGNO", "type": "VARCHAR2" },
+        { "name": "KHO_CODE", "type": "VARCHAR2" },
+        { "name": "STATUS", "type": "NUMBER" },
+        { "name": "RGT_STREET_ID", "type": "NUMBER" },
+        { "name": "PARCEL_ID", "type": "VARCHAR2" },
+        { "name": "BUILD_FLOOR", "type": "NUMBER" },
+        { "name": "ADDRESS", "type": "VARCHAR2" },
+        { "name": "LNG", "type": "VARCHAR2" },
+        { "name": "RGT_CENTER_TYPE_ID", "type": "NUMBER" },
+        { "name": "PARENT_ID", "type": "NUMBER" },
+        { "name": "UPDATED_DATE", "type": "DATE" },
+        { "name": "LAT", "type": "VARCHAR2" },
+        { "name": "CREATED_BY", "type": "NUMBER" },
+        { "name": "UPDATED_BY", "type": "NUMBER" },
+        { "name": "PROPERTY_SIZE", "type": "NUMBER" },
+        { "name": "LAND_SIZE", "type": "NUMBER" },
+        { "name": "START_DATE", "type": "DATE" },
+        { "name": "END_DATE", "type": "DATE" }
+      ],
+      "items": [
+        {
+          "id": 2249,
+          "code": "08",
+          "name": "Go to market ",
+          "office_code": "25",
+          "created_date": "03-JUN-24",
+          "regno": "6078893",
+          "kho_code": "11",
+          "status": 1,
+          "parcel_id": "1461502527",
+          "build_floor": 5,
+          "address": "Худалдаа, нийтийн үйлчилгээний газар, төв, цогцолбор",
+          "lng": "106.92441701889038",
+          "rgt_center_type_id": 1427,
+          "updated_date": "29-MAY-25",
+          "lat": "47.936299368916885",
+          "updated_by": 5253
+        }
+      ]
+    }
+  ]
+}

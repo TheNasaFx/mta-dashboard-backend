@@ -32,6 +32,6 @@ func MustConnect() {
 		log.Fatalf("Oracle өгөгдлийн сан ping амжилтгүй: %v", err)
 	}
 
-	log.Println("✅ Oracle өгөгдлийн сантай амжилттай холбогдлоо.")
+	log.Println("Oracle өгөгдлийн сантай амжилттай холбогдлоо.")
 	DB = db
 }

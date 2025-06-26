@@ -13,21 +13,21 @@ func GetOrgList(name, code, status string, pageSize, pageNumber int) ([]model.Or
 		database.MustConnect()
 	}
 
-	query := `SELECT id, name, code, type, address, phone, email, status, parent_id, created_at, updated_at, deleted_at FROM pay_center.org WHERE 1=1`
+	query := `SELECT id FROM pay_center.org WHERE 1=1`
 	args := []interface{}{}
 
-	if name != "" {
-		query += " AND LOWER(name) LIKE LOWER(?)"
-		args = append(args, "%"+name+"%")
-	}
-	if code != "" {
-		query += " AND LOWER(code) LIKE LOWER(?)"
-		args = append(args, "%"+code+"%")
-	}
-	if status != "" {
-		query += " AND status = ?"
-		args = append(args, status)
-	}
+	// if name != "" {
+	// 	query += " AND LOWER(name) LIKE LOWER(?)"
+	// 	args = append(args, "%"+name+"%")
+	// }
+	// if code != "" {
+	// 	query += " AND LOWER(code) LIKE LOWER(?)"
+	// 	args = append(args, "%"+code+"%")
+	// }
+	// if status != "" {
+	// 	query += " AND status = ?"
+	// 	args = append(args, status)
+	// }
 
 	// Paging
 	offset := (pageNumber - 1) * pageSize
@@ -44,7 +44,7 @@ func GetOrgList(name, code, status string, pageSize, pageNumber int) ([]model.Or
 	for rows.Next() {
 		var org model.Org
 		err := rows.Scan(
-			&org.ID, &org.Name,
+			&org.ID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("Scan error: %w", err)
@@ -65,7 +65,7 @@ func FindOrgByID(id uint) (*model.Org, error) {
 
 	var org model.Org
 	err := row.Scan(
-		&org.ID, &org.Name,
+		&org.ID,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
