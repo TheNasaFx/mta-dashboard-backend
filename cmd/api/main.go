@@ -2,19 +2,21 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
 
 	"dashboard-backend/database"
+	"dashboard-backend/handlers"
 	"dashboard-backend/routes"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -149,121 +151,7 @@ func getPayCenters(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Data API handler functions ---
-func getBuildings(c *gin.Context) {
-	c.JSON(http.StatusOK, centers)
-}
-
-func getCenters(c *gin.Context) {
-	district := c.Query("district")
-	khoroo := c.Query("khoroo")
-	filtered := []PayCenter{}
-	for _, center := range centers {
-		if (district == "" || center.OfficeCode == district) && (khoroo == "" || center.KhoCode == khoroo) {
-			filtered = append(filtered, center)
-		}
-	}
-	marketMrchMap := make(map[int][]string)
-	for _, m := range markets {
-		marketMrchMap[m.PayCenterID] = append(marketMrchMap[m.PayCenterID], m.MrchRegno)
-	}
-	barimtData, err := ioutil.ReadFile("data/pay_market_barimt.json")
-	type BarimtItem struct {
-		ID           int    `json:"id"`
-		Pin          string `json:"pin"`
-		CountReceipt int    `json:"count_receipt"`
-	}
-	var barimtRaw struct {
-		Results []struct{ Items []BarimtItem }
-	}
-	barimtMap := make(map[string]int)
-	if err == nil {
-		json.Unmarshal(barimtData, &barimtRaw)
-		for _, item := range barimtRaw.Results[0].Items {
-			barimtMap[item.Pin] = item.CountReceipt
-		}
-	}
-	type CenterWithPin struct {
-		PayCenter
-		PinList     []string `json:"pin_list"`
-		AllBarimtOk bool     `json:"all_barimt_ok"`
-	}
-	result := []CenterWithPin{}
-	for _, center := range filtered {
-		pins := marketMrchMap[center.ID]
-		allOk := true
-		for _, pin := range pins {
-			if barimtMap[pin] == 0 {
-				allOk = false
-				break
-			}
-		}
-		result = append(result, CenterWithPin{
-			PayCenter:   center,
-			PinList:     pins,
-			AllBarimtOk: allOk,
-		})
-	}
-	c.JSON(http.StatusOK, result)
-}
-
-func getFloors(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	floorSet := make(map[string]bool)
-	for _, m := range markets {
-		if m.PayCenterID == id {
-			floorSet[m.StorFloor] = true
-		}
-	}
-	floors := []string{}
-	for f := range floorSet {
-		floors = append(floors, f)
-	}
-	c.JSON(http.StatusOK, floors)
-}
-
-func getOrganizations(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	floor := c.Param("floor")
-	orgs := []map[string]interface{}{}
-	barimtData, err := ioutil.ReadFile("data/pay_market_barimt.json")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "pay_market_barimt.json not found"})
-		return
-	}
-	var barimtRaw struct {
-		Results []struct {
-			Items []struct {
-				ID           int    `json:"id"`
-				Pin          string `json:"pin"`
-				CountReceipt int    `json:"count_receipt"`
-			}
-		}
-	}
-	err = json.Unmarshal(barimtData, &barimtRaw)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "pay_market_barimt.json parse error"})
-		return
-	}
-	barimtMap := make(map[string]int)
-	if len(barimtRaw.Results) > 0 {
-		for _, item := range barimtRaw.Results[0].Items {
-			barimtMap[item.Pin] = item.CountReceipt
-		}
-	}
-	for _, m := range markets {
-		if m.PayCenterID == id && m.StorFloor == floor {
-			org := m
-			orgMap := make(map[string]interface{})
-			b, _ := json.Marshal(org)
-			json.Unmarshal(b, &orgMap)
-			orgMap["count_receipt"] = barimtMap[m.MrchRegno]
-			orgMap["lat"] = m.Lat
-			orgMap["lng"] = m.Lng
-			orgs = append(orgs, orgMap)
-		}
-	}
-	c.JSON(http.StatusOK, orgs)
-}
+// getFloors, getOrganizations, getAllOrganizations функцуудыг устгана. Одоо зөвхөн handlers/market.go-оос импортолно.
 
 func getOrganizationDetail(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
@@ -276,54 +164,11 @@ func getOrganizationDetail(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 }
 
-func getAllOrganizations(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	orgs := []map[string]interface{}{}
-	for _, m := range markets {
-		if m.PayCenterID == id {
-			org := m
-			orgMap := make(map[string]interface{})
-			b, err := json.Marshal(org)
-			if err != nil {
-				continue
-			}
-			json.Unmarshal(b, &orgMap)
-			orgs = append(orgs, orgMap)
-		}
-	}
-	c.JSON(http.StatusOK, orgs)
-}
-
 func main() {
-	// pay_center.json унших
-	centerData, err := ioutil.ReadFile("data/pay_center.json")
-	if err != nil {
-		panic(err)
-	}
-	var centerRaw struct{ Results []struct{ Items []PayCenter } }
-	err = json.Unmarshal(centerData, &centerRaw)
-	if err != nil {
-		panic(err)
-	}
-	if len(centerRaw.Results) > 0 {
-		centers = centerRaw.Results[0].Items
-	}
-
-	// pay_market.json унших
-	marketData, err := ioutil.ReadFile("data/pay_market.json")
-	if err != nil {
-		panic(err)
-	}
-	var marketRaw struct{ Results []struct{ Items []PayMarket } }
-	err = json.Unmarshal(marketData, &marketRaw)
-	if err != nil {
-		panic(err)
-	}
-	if len(marketRaw.Results) > 0 {
-		markets = marketRaw.Results[0].Items
-	}
-
+	_ = godotenv.Load()
 	database.MustConnect()
+	secret := os.Getenv("JWT_SECRET")
+	fmt.Println("JWT_SECRET:", secret) // Түр зуур хэвлэж шалга
 
 	router := gin.Default()
 
@@ -336,23 +181,92 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-	router.GET("/api/buildings", getBuildings)
-	router.GET("/api/centers", getCenters)
-	router.GET("/api/buildings/:id/floors", getFloors)
-	router.GET("/api/buildings/:id/floors/:floor/organizations", getOrganizations)
 	router.GET("/api/organizations/:id", getOrganizationDetail)
 	router.GET("/api/barimt", func(c *gin.Context) {
-		w := c.Writer
-		w.Header().Set("Content-Type", "application/json")
-		data, err := os.ReadFile("data/pay_market_barimt.json")
+		rows, err := database.DB.Query(`SELECT ID, PIN, COUNT_RECEIPT FROM GPS.PAY_MARKET_BARIMT`)
 		if err != nil {
-			http.Error(w, "File not found", http.StatusNotFound)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 			return
 		}
-		w.Write(data)
+		defer rows.Close()
+		var results []map[string]interface{}
+		for rows.Next() {
+			var id int
+			var pin string
+			var count int
+			if err := rows.Scan(&id, &pin, &count); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
+				return
+			}
+			results = append(results, map[string]interface{}{
+				"id":            id,
+				"pin":           pin,
+				"count_receipt": count,
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
 	})
-	router.GET("/api/buildings/:id/organizations", getAllOrganizations)
+	router.GET("/api/pay_center_property", func(c *gin.Context) {
+		rows, err := database.DB.Query(`SELECT ID, PAY_CENTER_ID, PROPERTY_NUMBER, STATUS, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, PROPERTY_TYPE, OWNER_REGNO, PROPERTY_SIZE, RENT_AMOUNT FROM GPS.PAY_CENTER_PROPERTY`)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
+			return
+		}
+		defer rows.Close()
+		var results []map[string]interface{}
+		for rows.Next() {
+			var id, payCenterId sql.NullInt64
+			var propertyNumber, ownerRegno, createdDate, updatedDate sql.NullString
+			var status, createdBy, updatedBy, propertyType sql.NullInt64
+			var propertySize, rentAmount sql.NullFloat64
+			if err := rows.Scan(&id, &payCenterId, &propertyNumber, &status, &createdBy, &createdDate, &updatedBy, &updatedDate, &propertyType, &ownerRegno, &propertySize, &rentAmount); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
+				return
+			}
+			results = append(results, map[string]interface{}{
+				"id":              ifNullInt64(id),
+				"pay_center_id":   ifNullInt64(payCenterId),
+				"property_number": ifNullString(propertyNumber),
+				"status":          ifNullInt64(status),
+				"created_by":      ifNullInt64(createdBy),
+				"created_date":    ifNullString(createdDate),
+				"updated_by":      ifNullInt64(updatedBy),
+				"updated_date":    ifNullString(updatedDate),
+				"property_type":   ifNullInt64(propertyType),
+				"owner_regno":     ifNullString(ownerRegno),
+				"property_size":   ifNullFloat64(propertySize),
+				"rent_amount":     ifNullFloat64(rentAmount),
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
+	})
+	router.GET("/api/ebarimt/:pin", handlers.GetEbarimtByPin)
+	router.GET("/api/buildings/:id/floors", handlers.GetFloors)
+	router.GET("/api/buildings/:id/floors/:floor/organizations", handlers.GetOrganizations)
+	router.GET("/api/buildings/:id/organizations", handlers.GetAllOrganizations)
 
 	routes.RegisterV1Routes(router)
 	router.Run(":8080")
+}
+
+// Helper functions for handling NULL values
+func ifNullString(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return ""
+}
+
+func ifNullFloat64(nf sql.NullFloat64) float64 {
+	if nf.Valid {
+		return nf.Float64
+	}
+	return 0
+}
+
+func ifNullInt64(ni sql.NullInt64) int {
+	if ni.Valid {
+		return int(ni.Int64)
+	}
+	return 0
 }

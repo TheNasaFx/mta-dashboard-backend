@@ -8,18 +8,40 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtKey = []byte("your_secret_key") // Use the same key as token generation if you generate your own tokens
+// ErrorResponse returns a unified error structure
+func ErrorResponse(c *gin.Context, code int, message string) {
+	c.JSON(code, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
 
-// AuthMiddleware checks only for the presence and format of the Bearer token
+// AuthMiddleware validates JWT (without signature), sets user info in context
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header missing or invalid"})
+			ErrorResponse(c, http.StatusUnauthorized, "Authorization header missing or invalid")
 			c.Abort()
 			return
 		}
-		// Do not parse or validate the token, just pass it through
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+		if err != nil {
+			ErrorResponse(c, http.StatusUnauthorized, "Invalid token format")
+			c.Abort()
+			return
+		}
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			ErrorResponse(c, http.StatusUnauthorized, "Invalid token claims")
+			c.Abort()
+			return
+		}
+		c.Set("user", claims)
 		c.Next()
 	}
 }

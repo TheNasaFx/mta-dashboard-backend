@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"dashboard-backend/auth"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -8,12 +9,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WorkerPositionListHandler(c *gin.Context) {
+// ProxyWorkerProfileHandler proxies the worker profile request to the external API with improved validation and error handling
+func ProxyWorkerProfileHandler(c *gin.Context) {
 	workerCode := c.Query("workerCode")
-	isPrimary := c.Query("isPrimary")
+	isPrimary := c.DefaultQuery("isPrimary", "1")
+	if workerCode == "" {
+		auth.ErrorResponse(c, http.StatusBadRequest, "workerCode is required")
+		return
+	}
 	token := c.GetHeader("Authorization")
 	if token == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+		auth.ErrorResponse(c, http.StatusUnauthorized, "Authorization header required")
 		return
 	}
 
@@ -21,7 +27,7 @@ func WorkerPositionListHandler(c *gin.Context) {
 
 	req, err := http.NewRequest("GET", externalURL, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
+		auth.ErrorResponse(c, http.StatusInternalServerError, "Failed to create request")
 		return
 	}
 	req.Header.Set("Authorization", token)
@@ -29,29 +35,27 @@ func WorkerPositionListHandler(c *gin.Context) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to external API"})
+		auth.ErrorResponse(c, http.StatusBadGateway, "Failed to connect to external API")
 		return
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read response"})
+		auth.ErrorResponse(c, http.StatusInternalServerError, "Failed to read response")
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		c.JSON(resp.StatusCode, gin.H{"error": string(body)})
+		auth.ErrorResponse(c, resp.StatusCode, string(body))
 		return
 	}
 
-	// Try to unmarshal as a single object
 	var profile map[string]interface{}
 	if err := json.Unmarshal(body, &profile); err == nil {
-		c.JSON(http.StatusOK, gin.H{"profile": profile})
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": profile})
 		return
 	}
 
-	// If not a single object, return as raw JSON
 	c.Data(http.StatusOK, "application/json", body)
 }

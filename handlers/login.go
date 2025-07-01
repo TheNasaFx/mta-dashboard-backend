@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"dashboard-backend/auth"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -25,20 +26,20 @@ type LoginResponse struct {
 func LoginHandler(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		auth.ErrorResponse(c, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
 	jsonData, err := json.Marshal(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to marshal request"})
+		auth.ErrorResponse(c, http.StatusInternalServerError, "Failed to marshal request")
 		return
 	}
 
 	externalURL := "https://st-tais.mta.mn/rest/tais-ims-service/token/login"
 	externalReq, err := http.NewRequest("POST", externalURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create external request"})
+		auth.ErrorResponse(c, http.StatusInternalServerError, "Failed to create external request")
 		return
 	}
 	externalReq.Header.Set("Content-Type", "application/json")
@@ -46,25 +47,25 @@ func LoginHandler(c *gin.Context) {
 	client := &http.Client{}
 	externalResp, err := client.Do(externalReq)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to external API"})
+		auth.ErrorResponse(c, http.StatusBadGateway, "Failed to connect to external API")
 		return
 	}
 	defer externalResp.Body.Close()
 
 	body, err := io.ReadAll(externalResp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read external response"})
+		auth.ErrorResponse(c, http.StatusInternalServerError, "Failed to read external response")
 		return
 	}
 
 	if externalResp.StatusCode != http.StatusOK {
-		c.JSON(externalResp.StatusCode, gin.H{"error": string(body)})
+		auth.ErrorResponse(c, externalResp.StatusCode, string(body))
 		return
 	}
 
 	var loginResp LoginResponse
 	if err := json.Unmarshal(body, &loginResp); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse external response"})
+		auth.ErrorResponse(c, http.StatusInternalServerError, "Failed to parse external response")
 		return
 	}
 
@@ -79,5 +80,5 @@ func LoginHandler(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, loginResp)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": loginResp})
 }
