@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
+	"dashboard-backend/database"
+	"dashboard-backend/database/model"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -97,4 +100,24 @@ func DeleteOrganization(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Deleted successfully"})
+}
+
+func ListOrganizations(c *gin.Context) {
+	db := database.DB
+	rows, err := db.Query("SELECT ID, NAME, REGNO, LNG, LAT FROM GPS.PAY_CENTER")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+	var orgs []model.Org
+	for rows.Next() {
+		var o model.Org
+		if err := rows.Scan(&o.ID, &o.Name, &o.Regno, &o.Lng, &o.Lat); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		orgs = append(orgs, o)
+	}
+	c.JSON(http.StatusOK, orgs)
 }

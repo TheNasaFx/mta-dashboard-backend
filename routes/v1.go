@@ -40,5 +40,42 @@ func RegisterV1Routes(router *gin.Engine) {
 		// --- Add these for centers and buildings ---
 		v1.GET("/centers", handlers.GetCenters)
 		v1.GET("/buildings", handlers.GetBuildings)
+
+		// Taxpayer summary endpoint
+
+		// LandView endpoint
+		v1.GET("/land-views", handlers.GetLandViewsHandler)
+
+		// PropertyOwner endpoint
+		v1.GET("/property-owners", handlers.GetPropertyOwnersHandler)
+
+		// Payments endpoint
+		v1.GET("/payments", handlers.GetPaymentsHandler)
+
+		// AccountGeneralYear endpoint
+		v1.GET("/account-general-years", handlers.GetAccountGeneralYearsHandler)
+
+		// TubReportData endpoint
+		v1.GET("/tub-report-data", handlers.GetTubReportDataHandler)
+
+		// TaxAuditPaper endpoint
+		v1.GET("/tax-audit-papers", handlers.GetTaxAuditPapersHandler)
+
+		// TaxAuditViolation endpoint
+		v1.GET("/tax-audit-violations", handlers.GetTaxAuditViolationsHandler)
+
+		// TaxAuditPenalty endpoint
+		v1.GET("/tax-audit-penalties", handlers.GetTaxAuditPenaltiesHandler)
+
+		// TubHrmWorkPerformance endpoint
+		v1.GET("/tub-hrm-work-performance", handlers.GetTubHrmWorkPerformancesHandler)
+
+		// TubAuditQrHistory endpoint
+		v1.GET("/tub-audit-qr-history", handlers.GetTubAuditQrHistoriesHandler)
+
+		// PayCenterLocation endpoint
+		v1.GET("/pay-center-locations", handlers.GetPayCenterLocationsHandler)
+
+		v1.GET("/organizations", handlers.ListOrganizations)
 	}
 }
