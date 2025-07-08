@@ -2,45 +2,48 @@ package handlers
 
 import (
 	"dashboard-backend/database"
-	"dashboard-backend/repository"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
 func GetPropertyOwnersHandler(c *gin.Context) {
-	regno := c.Query("regno")
-	entId := c.Query("ent_id")
-	db := database.DB
-	data, err := repository.GetPropertyOwners(db)
+	regNum := c.Query("reg_num")
+	if regNum == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reg_num parameter is required"})
+		return
+	}
+
+	rows, err := database.DB.Query(`
+		SELECT PROPERTY_NUMBER, FULL_ADDRESS, PROPERTY_TYPE, PROPERTY_SIZE, CREATED_DATE, REG_NUM
+		FROM GPS.V_TPI_PROPERTY_XYP_DATA_OWNER 
+		WHERE REG_NUM = :1`, regNum)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
 	}
-	if entId != "" {
-		var filtered []interface{}
-		for _, owner := range data {
-			if owner.ENT_ID.Valid && strconv.FormatInt(owner.ENT_ID.Int64, 10) == entId {
-				filtered = append(filtered, owner)
-			}
-		}
-		c.JSON(http.StatusOK, filtered)
-		return
-	}
-	if regno != "" {
-		var filtered []interface{}
-		for _, owner := range data {
-			if owner.REG_NUM.Valid && owner.REG_NUM.String == regno {
-				filtered = append(filtered, owner)
-			}
-		}
-		if len(filtered) == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var propertyNumber, fullAddress, propertyType, createdDate, regNumResult *string
+		var propertySize *float64
+
+		if err := rows.Scan(&propertyNumber, &fullAddress, &propertyType, &propertySize, &createdDate, &regNumResult); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, filtered)
-		return
+
+		result := map[string]interface{}{
+			"property_number": propertyNumber,
+			"full_address":    fullAddress,
+			"property_type":   propertyType,
+			"property_size":   propertySize,
+			"created_date":    createdDate,
+			"reg_num":         regNumResult,
+		}
+		results = append(results, result)
 	}
-	c.JSON(http.StatusOK, data)
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
 }

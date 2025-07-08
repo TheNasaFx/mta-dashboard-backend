@@ -1,18 +1,20 @@
 package handlers
 
 import (
-    "net/http"
-    "github.com/gin-gonic/gin"
-    "dashboard-backend/repository"
-    "dashboard-backend/database"
+	"dashboard-backend/database"
+	"dashboard-backend/repository"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 func GetTubReportDataHandler(c *gin.Context) {
-    db := database.DB
-    data, err := repository.GetTubReportData(db)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
-    c.JSON(http.StatusOK, data)
-} 
+	db := database.DB
+	tin := c.Query("tin")
+	data, err := repository.GetTubReportDataByTIN(db, tin)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, data)
+}

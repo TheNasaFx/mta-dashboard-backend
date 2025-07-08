@@ -41,6 +41,11 @@ func RegisterV1Routes(router *gin.Engine) {
 		v1.GET("/centers", handlers.GetCenters)
 		v1.GET("/buildings", handlers.GetBuildings)
 
+		// Building floors and organizations endpoints
+		v1.GET("/buildings/:id/floors", handlers.GetFloors)
+		v1.GET("/buildings/:id/floors/:floor/organizations", handlers.GetOrganizations)
+		v1.GET("/buildings/:id/organizations", handlers.GetAllOrganizations)
+
 		// Taxpayer summary endpoint
 
 		// LandView endpoint
@@ -50,12 +55,12 @@ func RegisterV1Routes(router *gin.Engine) {
 		v1.GET("/property-owners", handlers.GetPropertyOwnersHandler)
 
 		// Payments endpoint
-		v1.GET("/payments", handlers.GetPaymentsHandler)
+		v1.GET("/payments/:pin", handlers.GetPaymentsByPin)
 
 		// AccountGeneralYear endpoint
 		v1.GET("/account-general-years", handlers.GetAccountGeneralYearsHandler)
 
-		// TubReportData endpoint
+		// TubReportData endpoint (TIN query param)
 		v1.GET("/tub-report-data", handlers.GetTubReportDataHandler)
 
 		// TaxAuditPaper endpoint
@@ -75,6 +80,17 @@ func RegisterV1Routes(router *gin.Engine) {
 
 		// PayCenterLocation endpoint
 		v1.GET("/pay-center-locations", handlers.GetPayCenterLocationsHandler)
+
+		// Map data endpoints
+		v1.GET("/map-data", handlers.GetMapDataHandler)
+		v1.GET("/map-data-batch", handlers.GetMapDataBatchHandler)
+		v1.GET("/pay-center-properties", handlers.GetPayCenterPropertiesHandler)
+
+		// Markets endpoint
+		v1.GET("/markets", handlers.GetMarketsByPayCenterID)
+
+		// Debug endpoint for ebarimt mapping
+		v1.GET("/ebarimt-debug", handlers.GetEbarimtDebug)
 
 		v1.GET("/organizations", handlers.ListOrganizations)
 	}

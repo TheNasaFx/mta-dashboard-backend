@@ -1,27 +1,77 @@
 package repository
 
 import (
-    "database/sql"
-    "dashboard-backend/database/model"
+	"dashboard-backend/database"
+	"dashboard-backend/database/model"
+	"fmt"
 )
 
-func GetPayments(db *sql.DB) ([]model.Payment, error) {
-    rows, err := db.Query("SELECT * FROM GPS.V_E_TUB_PAYMENTS")
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+// GetPaymentsByPin returns payment information by PIN
+func GetPaymentsByPin(pin string) (*model.PaymentsSummary, error) {
+	if database.DB == nil {
+		database.MustConnect()
+	}
 
-    var results []model.Payment
-    for rows.Next() {
-        var p model.Payment
-        err := rows.Scan(
-            &p.ID, &p.SRC_ACCOUNT_ID, &p.DEST_ACCOUNT_ID, &p.CURRENCY_RATE, &p.FEE, &p.OWNER_ID, &p.INVOICE_ID, &p.BANK_TRAN_NO, &p.PAID_DATE, &p.PAY_TYPE_ID, &p.TRAN_TYPE, &p.SETTLEMENT_ID, &p.STATUS, &p.CREATED_BY, &p.CREATED_DATE, &p.UPDATED_BY, &p.UPDATED_DATE, &p.DESCRIPTION, &p.VERSION, &p.ACCESS_LEVEL, &p.ACTIVE_FLAG, &p.PRIMARY_ID, &p.ACTION_FLAG, &p.SRC_ACCOUNT_TYPE, &p.INV_TYPE, &p.BANK_ID, &p.OPERATOR_ID, &p.STATEMENT_STATUS, &p.ADR_CONTACT_ID, &p.RECORD_SOURCE, &p.SETTLEMENT_NO, &p.TMP_TRAN_ID, &p.TMP_TAXACT_DLN, &p.SUB_BUDGET_ID, &p.STATE_STATEMENT_ID, &p.STATE_SETTLEMENT_DATE, &p.AMOUNT, &p.INVOICE_NO, &p.PAY_UUID, &p.ACT_ACCOUNT_ID, &p.TAX_TYPE_ID, &p.TAX_DTYPE_ID, &p.BRANCH_ID, &p.SUB_BRANCH_ID, &p.FIN_TRAN_NO, &p.ACCOUNT_NO,
-        )
-        if err != nil {
-            return nil, err
-        }
-        results = append(results, p)
-    }
-    return results, nil
-} 
+	// Get summary data (earliest and latest dates, total amount)
+	summaryQuery := `SELECT 
+		MIN(PAID_DATE) as EARLIEST_DATE,
+		MAX(PAID_DATE) as LATEST_DATE,
+		SUM(AMOUNT) as TOTAL_AMOUNT,
+		COUNT(*) as PAYMENT_COUNT
+	FROM GPS.V_E_TUB_PAYMENTS 
+	WHERE TRIM(UPPER(PIN)) = TRIM(UPPER(:1))`
+
+	row := database.DB.QueryRow(summaryQuery, pin)
+	var summary model.PaymentsSummary
+	err := row.Scan(&summary.EarliestDate, &summary.LatestDate, &summary.TotalAmount, &summary.PaymentCount)
+	if err != nil {
+		return nil, fmt.Errorf("summary query error: %w", err)
+	}
+
+	// Get detailed payment records
+	detailQuery := `SELECT 
+		TAX_TYPE_NAME,
+		INVOICE_NO,
+		BRANCH_NAME,
+		PAID_DATE,
+		AMOUNT,
+		DESCRIPTION,
+		ENTITY_NAME,
+		PAYMENT_METHOD_NAME,
+		TAX_TYPE_CODE,
+		BRANCH_CODE
+	FROM GPS.V_E_TUB_PAYMENTS 
+	WHERE TRIM(UPPER(PIN)) = TRIM(UPPER(:1))
+	ORDER BY PAID_DATE DESC`
+
+	rows, err := database.DB.Query(detailQuery, pin)
+	if err != nil {
+		return nil, fmt.Errorf("detail query error: %w", err)
+	}
+	defer rows.Close()
+
+	var payments []model.PaymentDetail
+	for rows.Next() {
+		var payment model.PaymentDetail
+		err := rows.Scan(
+			&payment.TaxTypeName,
+			&payment.InvoiceNo,
+			&payment.BranchName,
+			&payment.PaidDate,
+			&payment.Amount,
+			&payment.Description,
+			&payment.EntityName,
+			&payment.PaymentMethodName,
+			&payment.TaxTypeCode,
+			&payment.BranchCode,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+		payments = append(payments, payment)
+	}
+
+	summary.Payments = payments
+	summary.PIN = pin
+	return &summary, nil
+}

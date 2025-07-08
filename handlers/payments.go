@@ -1,37 +1,26 @@
 package handlers
 
 import (
-	"dashboard-backend/database"
+	"dashboard-backend/auth"
 	"dashboard-backend/repository"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
-func GetPaymentsHandler(c *gin.Context) {
-	ownerID := c.Query("owner_id")
-	db := database.DB
-	data, err := repository.GetPayments(db)
+// GetPaymentsByPin returns payment information by PIN (GET /api/v1/payments/:pin)
+func GetPaymentsByPin(c *gin.Context) {
+	pin := c.Param("pin")
+	if pin == "" {
+		auth.ErrorResponse(c, http.StatusBadRequest, "PIN parameter is required")
+		return
+	}
+
+	payments, err := repository.GetPaymentsByPin(pin)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		auth.ErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if ownerID != "" {
-		var filtered []interface{}
-		for _, item := range data {
-			if item.OWNER_ID.Valid {
-				if id, err := strconv.ParseInt(ownerID, 10, 64); err == nil && item.OWNER_ID.Int64 == id {
-					filtered = append(filtered, item)
-				}
-			}
-		}
-		if len(filtered) == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
-			return
-		}
-		c.JSON(http.StatusOK, filtered)
-		return
-	}
-	c.JSON(http.StatusOK, data)
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": payments})
 }

@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"dashboard-backend/database"
-	"dashboard-backend/database/model"
+	"database/sql"
 
 	"github.com/gin-gonic/gin"
 )
@@ -110,14 +110,137 @@ func ListOrganizations(c *gin.Context) {
 		return
 	}
 	defer rows.Close()
-	var orgs []model.Org
+
+	var orgs []map[string]interface{}
 	for rows.Next() {
-		var o model.Org
-		if err := rows.Scan(&o.ID, &o.Name, &o.Regno, &o.Lng, &o.Lat); err != nil {
+		var id int
+		var name, regno string
+		var lng, lat sql.NullFloat64
+
+		if err := rows.Scan(&id, &name, &regno, &lng, &lat); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		orgs = append(orgs, o)
+
+		org := map[string]interface{}{
+			"id":    id,
+			"name":  name,
+			"regno": regno,
+			"lng":   nil,
+			"lat":   nil,
+		}
+
+		if lng.Valid {
+			org["lng"] = lng.Float64
+		}
+		if lat.Valid {
+			org["lat"] = lat.Float64
+		}
+
+		orgs = append(orgs, org)
 	}
 	c.JSON(http.StatusOK, orgs)
+}
+
+// GetOrganizationsBatch returns organizations with all related data in one query
+func GetOrganizationsBatch(c *gin.Context) {
+	id := c.Query("id")
+	floor := c.Query("floor")
+
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id parameter is required"})
+		return
+	}
+
+	// Use the correct column names from PAY_MARKET table
+	payCenterID, err := strconv.Atoi(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid id"})
+		return
+	}
+
+	var query string
+	var args []interface{}
+
+	if floor != "" {
+		query = `SELECT ID, OP_TYPE_NAME, DIST_CODE, KHO_CODE, STOR_NAME, STOR_FLOOR, MRCH_REGNO, PAY_CENTER_PROPERTY_ID, PAY_CENTER_ID, LAT, LNG FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :1 AND STOR_FLOOR = :2`
+		args = []interface{}{payCenterID, floor}
+	} else {
+		query = `SELECT ID, OP_TYPE_NAME, DIST_CODE, KHO_CODE, STOR_NAME, STOR_FLOOR, MRCH_REGNO, PAY_CENTER_PROPERTY_ID, PAY_CENTER_ID, LAT, LNG FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :1`
+		args = []interface{}{payCenterID}
+	}
+
+	rows, err := database.DB.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var orgs []map[string]interface{}
+	for rows.Next() {
+		var (
+			id                  int
+			opTypeName          sql.NullString
+			distCode            sql.NullString
+			khoCode             sql.NullString
+			storName            sql.NullString
+			storFloor           sql.NullString
+			mrchRegno           sql.NullString
+			payCenterPropertyID sql.NullInt64
+			payCenterID         int
+			lat                 sql.NullFloat64
+			lng                 sql.NullFloat64
+		)
+
+		if err := rows.Scan(&id, &opTypeName, &distCode, &khoCode, &storName, &storFloor, &mrchRegno, &payCenterPropertyID, &payCenterID, &lat, &lng); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
+			return
+		}
+
+		org := map[string]interface{}{
+			"id":                     id,
+			"op_type_name":           getStringValue(opTypeName),
+			"dist_code":              getStringValue(distCode),
+			"kho_code":               getStringValue(khoCode),
+			"stor_name":              getStringValue(storName),
+			"stor_floor":             getStringValue(storFloor),
+			"mrch_regno":             getStringValue(mrchRegno),
+			"pay_center_property_id": getInt64Value(payCenterPropertyID),
+			"pay_center_id":          payCenterID,
+			"lat":                    getFloatValue(lat),
+			"lng":                    getFloatValue(lng),
+			"count_receipt":          0,  // Default for now
+			"report_submitted_date":  "", // Default for now
+			"payable_debit":          0,  // Default for now
+			"advice_count":           0,  // Default for now
+		}
+
+		orgs = append(orgs, org)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": orgs})
+}
+
+// Helper functions to handle NULL values
+func getStringValue(nullStr sql.NullString) interface{} {
+	if nullStr.Valid {
+		return nullStr.String
+	}
+	return nil
+}
+
+func getFloatValue(nullFloat sql.NullFloat64) interface{} {
+	if nullFloat.Valid {
+		return nullFloat.Float64
+	}
+	return nil
+}
+
+// Helper function for Int64 values
+func getInt64Value(nullInt sql.NullInt64) interface{} {
+	if nullInt.Valid {
+		return int(nullInt.Int64)
+	}
+	return nil
 }

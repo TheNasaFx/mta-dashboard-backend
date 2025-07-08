@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	"dashboard-backend/config"
 
@@ -28,10 +29,17 @@ func MustConnect() {
 		log.Fatalf("Oracle өгөгдлийн сантай холбогдох үед алдаа гарлаа: %v", err)
 	}
 
+	// Connection pool тохиргоо
+	db.SetMaxOpenConns(25)                  // Хамгийн их 25 холболт
+	db.SetMaxIdleConns(5)                   // Хамгийн их 5 idle холболт
+	db.SetConnMaxLifetime(5 * time.Minute)  // Connection-ий max хугацаа
+	db.SetConnMaxIdleTime(30 * time.Second) // Idle connection timeout
+
 	if err = db.Ping(); err != nil {
 		log.Fatalf("Oracle өгөгдлийн сан ping амжилтгүй: %v", err)
 	}
 
 	log.Println("Oracle өгөгдлийн сантай амжилттай холбогдлоо.")
+	log.Printf("Connection pool: MaxOpen=%d, MaxIdle=%d", 25, 5)
 	DB = db
 }

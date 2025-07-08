@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"dashboard-backend/database"
+	"database/sql"
 	"net/http"
 	"strconv"
 
@@ -11,7 +12,7 @@ import (
 func GetAccountGeneralYearsHandler(c *gin.Context) {
 	regno := c.Query("regno")
 	db := database.DB
-	tab := c.Query("tab") // 'report' or 'info'
+	tab := c.Query("tab") // 'report' or 'info' or 'debt'
 	if regno != "" {
 		if tab == "report" {
 			pageStr := c.DefaultQuery("page", "1")
@@ -67,6 +68,26 @@ func GetAccountGeneralYearsHandler(c *gin.Context) {
 					return
 				}
 				results = append(results, i)
+			}
+			c.JSON(http.StatusOK, results)
+			return
+		} else if tab == "debt" {
+			rows, err := db.Query("SELECT C2_DEBIT FROM GPS.V_ACCOUNT_GENERAL_YEAR WHERE PIN = :1", regno)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			defer rows.Close()
+			var results []string
+			for rows.Next() {
+				var payable sql.NullString
+				if err := rows.Scan(&payable); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+				if payable.Valid {
+					results = append(results, payable.String)
+				}
 			}
 			c.JSON(http.StatusOK, results)
 			return
