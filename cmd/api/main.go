@@ -183,7 +183,7 @@ func main() {
 
 	router.GET("/api/organizations/:id", getOrganizationDetail)
 	router.GET("/api/barimt", func(c *gin.Context) {
-		rows, err := database.DB.Query(`SELECT ID, PIN, COUNT_RECEIPT FROM GPS.PAY_MARKET_BARIMT`)
+		rows, err := database.DB.Query(`SELECT ID, MRCH_REGNO, CNT_3, CNT_30, OP_TYPE_NAME, MAR_NAME, MAR_REGNO, QR_CODE FROM GPS.V_E_TUB_PAY_MARKET_EBARIMT`)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 			return
@@ -192,16 +192,22 @@ func main() {
 		var results []map[string]interface{}
 		for rows.Next() {
 			var id int
-			var pin string
-			var count int
-			if err := rows.Scan(&id, &pin, &count); err != nil {
+			var mrchRegno, opTypeName, marName, marRegno, qrCode sql.NullString
+			var cnt3, cnt30 sql.NullInt64
+			if err := rows.Scan(&id, &mrchRegno, &cnt3, &cnt30, &opTypeName, &marName, &marRegno, &qrCode); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 				return
 			}
 			results = append(results, map[string]interface{}{
 				"id":            id,
-				"pin":           pin,
-				"count_receipt": count,
+				"mrch_regno":    ifNullString(mrchRegno),
+				"cnt_3":         ifNullInt64(cnt3),
+				"cnt_30":        ifNullInt64(cnt30),
+				"count_receipt": ifNullInt64(cnt3), // Backward compatibility with existing frontend
+				"op_type_name":  ifNullString(opTypeName),
+				"mar_name":      ifNullString(marName),
+				"mar_regno":     ifNullString(marRegno),
+				"qr_code":       ifNullString(qrCode),
 			})
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": results})

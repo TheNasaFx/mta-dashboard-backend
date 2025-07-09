@@ -89,7 +89,27 @@ func GetCenters(c *gin.Context) {
 
 // GetBuildings returns all buildings
 func GetBuildings(c *gin.Context) {
-	rows, err := database.DB.Query(`SELECT ID, NAME, BUILD_FLOOR, OFFICE_CODE, KHO_CODE, REGNO, LAT, LNG, PARCEL_ID FROM GPS.PAY_CENTER`)
+	// Жoinтой query ашиглаж PAY_CENTER болон PAY_MARKET-аас мэдээлэл авах
+	query := `
+		SELECT 
+			pc.ID, 
+			pc.NAME, 
+			pc.BUILD_FLOOR, 
+			pc.OFFICE_CODE, 
+			pc.KHO_CODE, 
+			pc.REGNO, 
+			pc.LAT, 
+			pc.LNG, 
+			pc.PARCEL_ID,
+			pc.ADDRESS,
+			COUNT(DISTINCT pm.MRCH_REGNO) as TAX_PAYERS
+		FROM GPS.PAY_CENTER pc
+		LEFT JOIN GPS.PAY_MARKET pm ON pc.ID = pm.PAY_CENTER_ID
+		GROUP BY pc.ID, pc.NAME, pc.BUILD_FLOOR, pc.OFFICE_CODE, pc.KHO_CODE, pc.REGNO, pc.LAT, pc.LNG, pc.PARCEL_ID, pc.ADDRESS
+		ORDER BY pc.ID
+	`
+
+	rows, err := database.DB.Query(query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
@@ -97,11 +117,11 @@ func GetBuildings(c *gin.Context) {
 	defer rows.Close()
 	var results []map[string]interface{}
 	for rows.Next() {
-		var id int
+		var id, taxPayers int
 		var buildFloor sql.NullInt64
-		var name, officeCode, khoCode, regno, lat, lng, parcelId sql.NullString
+		var name, officeCode, khoCode, regno, lat, lng, parcelId, address sql.NullString
 
-		if err := rows.Scan(&id, &name, &buildFloor, &officeCode, &khoCode, &regno, &lat, &lng, &parcelId); err != nil {
+		if err := rows.Scan(&id, &name, &buildFloor, &officeCode, &khoCode, &regno, &lat, &lng, &parcelId, &address, &taxPayers); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
@@ -116,6 +136,8 @@ func GetBuildings(c *gin.Context) {
 			"lat":         nil,
 			"lng":         nil,
 			"parcel_id":   nil,
+			"address":     nil,
+			"tax_payers":  taxPayers,
 		}
 
 		if buildFloor.Valid {
@@ -141,6 +163,9 @@ func GetBuildings(c *gin.Context) {
 		}
 		if parcelId.Valid {
 			result["parcel_id"] = parcelId.String
+		}
+		if address.Valid {
+			result["address"] = address.String
 		}
 
 		results = append(results, result)
@@ -320,15 +345,160 @@ func GetMarketsByPayCenterID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": orgs})
 }
 
-// GetEbarimtByPin returns ebarimt info by PIN
-func GetEbarimtByPin(c *gin.Context) {
-	pin := c.Param("pin")
-	ebarimt, err := repository.GetEbarimtByPin(pin)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Ebarimt not found for this PIN"})
+// GetBuildingByID returns a single building by ID
+func GetBuildingByID(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID parameter is required"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": ebarimt})
+
+	// PAY_CENTER болон PAY_MARKET-аас мэдээлэл авах
+	query := `
+		SELECT 
+			pc.ID, 
+			pc.NAME, 
+			pc.BUILD_FLOOR, 
+			pc.OFFICE_CODE, 
+			pc.KHO_CODE, 
+			pc.REGNO, 
+			pc.LAT, 
+			pc.LNG, 
+			pc.PARCEL_ID,
+			pc.ADDRESS,
+			COUNT(DISTINCT pm.MRCH_REGNO) as TAX_PAYERS
+		FROM GPS.PAY_CENTER pc
+		LEFT JOIN GPS.PAY_MARKET pm ON pc.ID = pm.PAY_CENTER_ID
+		WHERE pc.ID = :1
+		GROUP BY pc.ID, pc.NAME, pc.BUILD_FLOOR, pc.OFFICE_CODE, pc.KHO_CODE, pc.REGNO, pc.LAT, pc.LNG, pc.PARCEL_ID, pc.ADDRESS
+	`
+
+	row := database.DB.QueryRow(query, id)
+
+	var buildingID, taxPayers int
+	var buildFloor sql.NullInt64
+	var name, officeCode, khoCode, regno, lat, lng, parcelId, address sql.NullString
+
+	if err := row.Scan(&buildingID, &name, &buildFloor, &officeCode, &khoCode, &regno, &lat, &lng, &parcelId, &address, &taxPayers); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Building not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
+		return
+	}
+
+	result := map[string]interface{}{
+		"id":          buildingID,
+		"name":        nil,
+		"build_floor": nil,
+		"office_code": nil,
+		"kho_code":    nil,
+		"regno":       nil,
+		"lat":         nil,
+		"lng":         nil,
+		"parcel_id":   nil,
+		"address":     nil,
+		"tax_payers":  taxPayers,
+	}
+
+	if buildFloor.Valid {
+		result["build_floor"] = int(buildFloor.Int64)
+	}
+	if name.Valid {
+		result["name"] = name.String
+	}
+	if officeCode.Valid {
+		result["office_code"] = officeCode.String
+	}
+	if khoCode.Valid {
+		result["kho_code"] = khoCode.String
+	}
+	if regno.Valid {
+		result["regno"] = regno.String
+	}
+	if lat.Valid {
+		result["lat"] = lat.String
+	}
+	if lng.Valid {
+		result["lng"] = lng.String
+	}
+	if parcelId.Valid {
+		result["parcel_id"] = parcelId.String
+	}
+	if address.Valid {
+		result["address"] = address.String
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
+// GetEbarimtByPin returns ebarimt info by PIN from new V_E_TUB_PAY_MARKET_EBARIMT table
+func GetEbarimtByPin(c *gin.Context) {
+	pin := c.Param("pin")
+
+	// Query V_E_TUB_PAY_MARKET_EBARIMT with new structure
+	query := `SELECT 
+		COALESCE(SUM(CNT_3), 0) as CNT_3,
+		COALESCE(SUM(CNT_30), 0) as CNT_30,
+		MAX(OP_TYPE_NAME) as OP_TYPE_NAME,
+		MAX(MAR_NAME) as MAR_NAME,
+		MAX(MAR_REGNO) as MAR_REGNO,
+		MAX(QR_CODE) as QR_CODE
+	FROM GPS.V_E_TUB_PAY_MARKET_EBARIMT 
+	WHERE TRIM(UPPER(MRCH_REGNO)) = TRIM(UPPER(:1))`
+
+	row := database.DB.QueryRow(query, pin)
+
+	var cnt3, cnt30 int
+	var opTypeName, marName, marRegno, qrCode sql.NullString
+
+	err := row.Scan(&cnt3, &cnt30, &opTypeName, &marName, &marRegno, &qrCode)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// Return zero values if no data found
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data": gin.H{
+					"count_receipt": 0,
+					"cnt_3":         0,
+					"cnt_30":        0,
+					"op_type_name":  "",
+					"mar_name":      "",
+					"mar_regno":     "",
+					"qr_code":       "",
+				},
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error: " + err.Error()})
+		return
+	}
+
+	result := gin.H{
+		"count_receipt": cnt3, // For backward compatibility
+		"cnt_3":         cnt3,
+		"cnt_30":        cnt30,
+		"op_type_name":  "",
+		"mar_name":      "",
+		"mar_regno":     "",
+		"qr_code":       "",
+	}
+
+	if opTypeName.Valid {
+		result["op_type_name"] = opTypeName.String
+	}
+	if marName.Valid {
+		result["mar_name"] = marName.String
+	}
+	if marRegno.Valid {
+		result["mar_regno"] = marRegno.String
+	}
+	if qrCode.Valid {
+		result["qr_code"] = qrCode.String
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
 // Debug endpoint to check MRCH_REGNO to PIN mapping
@@ -347,12 +517,12 @@ func GetEbarimtDebug(c *gin.Context) {
 		return
 	}
 
-	// Check if this MRCH_REGNO exists as PIN in PAY_MARKET_BARIMT
+	// Check if this MRCH_REGNO exists as PIN in V_E_TUB_PAY_MARKET_EBARIMT
 	var barimtExists int
 	var countReceipt int
-	err = database.DB.QueryRow("SELECT COUNT(*), COALESCE(MAX(COUNT_RECEIPT), 0) FROM GPS.PAY_MARKET_BARIMT WHERE TRIM(UPPER(PIN)) = TRIM(UPPER(:1))", mrchRegno).Scan(&barimtExists, &countReceipt)
+	err = database.DB.QueryRow("SELECT COUNT(*), COALESCE(MAX(CNT_3), 0) FROM GPS.V_E_TUB_PAY_MARKET_EBARIMT WHERE TRIM(UPPER(MRCH_REGNO)) = TRIM(UPPER(:1))", mrchRegno).Scan(&barimtExists, &countReceipt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking PAY_MARKET_BARIMT: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking V_E_TUB_PAY_MARKET_EBARIMT: " + err.Error()})
 		return
 	}
 
@@ -362,5 +532,49 @@ func GetEbarimtDebug(c *gin.Context) {
 		"barimt_exists":     barimtExists > 0,
 		"count_receipt":     countReceipt,
 		"debug":             "MRCH_REGNO сэс PIN болж ашиглагдаж байна уу шалгах",
+	})
+}
+
+// GetDashboardStatistics returns overall dashboard statistics
+func GetDashboardStatistics(c *gin.Context) {
+	var totalBuildings, totalTenants, totalReceiptCount int
+	var totalArea float64
+
+	// 1. Нийт Объект (барилга) - PAY_CENTER тоо
+	err := database.DB.QueryRow("SELECT COUNT(*) FROM GPS.PAY_CENTER").Scan(&totalBuildings)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error counting buildings: " + err.Error()})
+		return
+	}
+
+	// 2. Нийт мкв - PAY_CENTER_PROPERTY доторх бүх PROPERTY_SIZE нэмэх
+	err = database.DB.QueryRow("SELECT NVL(SUM(TO_NUMBER(REPLACE(PROPERTY_SIZE, ',', '.'))), 0) FROM GPS.PAY_CENTER_PROPERTY").Scan(&totalArea)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error calculating total area: " + err.Error()})
+		return
+	}
+
+	// 3. Түрээслэгч - нийт хэдэн түрээслэгч (PAY_MARKET доторх unique MRCH_REGNO)
+	err = database.DB.QueryRow("SELECT COUNT(DISTINCT MRCH_REGNO) FROM GPS.PAY_MARKET").Scan(&totalTenants)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error counting tenants: " + err.Error()})
+		return
+	}
+
+	// 4. Баримт хэвлэдэг - V_E_TUB_PAY_MARKET_EBARIMT доторх бүх мөрийг тоолох
+	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.V_E_TUB_PAY_MARKET_EBARIMT").Scan(&totalReceiptCount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error counting receipts: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"total_buildings":     totalBuildings,
+			"total_area":          totalArea,
+			"total_tenants":       totalTenants,
+			"total_receipt_count": totalReceiptCount,
+		},
 	})
 }

@@ -139,7 +139,7 @@ func ListOrganizations(c *gin.Context) {
 
 		orgs = append(orgs, org)
 	}
-	c.JSON(http.StatusOK, orgs)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": orgs})
 }
 
 // GetOrganizationsBatch returns organizations with all related data in one query

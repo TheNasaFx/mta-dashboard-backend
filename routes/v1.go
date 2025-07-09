@@ -40,6 +40,7 @@ func RegisterV1Routes(router *gin.Engine) {
 		// --- Add these for centers and buildings ---
 		v1.GET("/centers", handlers.GetCenters)
 		v1.GET("/buildings", handlers.GetBuildings)
+		v1.GET("/buildings/:id", handlers.GetBuildingByID)
 
 		// Building floors and organizations endpoints
 		v1.GET("/buildings/:id/floors", handlers.GetFloors)
@@ -91,6 +92,9 @@ func RegisterV1Routes(router *gin.Engine) {
 
 		// Debug endpoint for ebarimt mapping
 		v1.GET("/ebarimt-debug", handlers.GetEbarimtDebug)
+
+		// Dashboard statistics endpoint
+		v1.GET("/statistics", handlers.GetDashboardStatistics)
 
 		v1.GET("/organizations", handlers.ListOrganizations)
 	}
