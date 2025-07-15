@@ -284,7 +284,7 @@ func GetAllOrganizations(c *gin.Context) {
 		}
 		orgs = append(orgs, orgMap)
 	}
-	c.JSON(http.StatusOK, orgs)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": orgs})
 }
 
 // GetMarketsByPayCenterID returns all markets for a specific pay center

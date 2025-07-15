@@ -97,5 +97,8 @@ func RegisterV1Routes(router *gin.Engine) {
 		v1.GET("/statistics", handlers.GetDashboardStatistics)
 
 		v1.GET("/organizations", handlers.ListOrganizations)
+
+		// Organization detail endpoint
+		v1.GET("/organization-detail/:regno", handlers.GetOrganizationDetail)
 	}
 }
