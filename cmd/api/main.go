@@ -246,7 +246,6 @@ func main() {
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
 	})
-	router.GET("/api/ebarimt/:pin", handlers.GetEbarimtByPin)
 	router.GET("/api/buildings/:id/floors", handlers.GetFloors)
 	router.GET("/api/buildings/:id/floors/:floor/organizations", handlers.GetOrganizations)
 	router.GET("/api/buildings/:id/organizations", handlers.GetAllOrganizations)

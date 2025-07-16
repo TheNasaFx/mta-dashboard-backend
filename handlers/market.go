@@ -5,8 +5,11 @@ import (
 	"dashboard-backend/database"
 	"dashboard-backend/repository"
 	"database/sql"
+	"fmt"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -576,5 +579,376 @@ func GetDashboardStatistics(c *gin.Context) {
 			"total_tenants":       totalTenants,
 			"total_receipt_count": totalReceiptCount,
 		},
+	})
+}
+
+// GetRegistrationStats returns registration statistics for a building
+func GetRegistrationStats(c *gin.Context) {
+	buildingID := c.Param("id")
+	if buildingID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Building ID is required"})
+		return
+	}
+
+	// Query to get MRCH_REGNO from PAY_MARKET where PAY_CENTER_ID matches building ID
+	query := `
+		SELECT DISTINCT pm.MRCH_REGNO
+		FROM GPS.PAY_MARKET pm
+		WHERE pm.PAY_CENTER_ID = :1
+	`
+
+	rows, err := database.DB.Query(query, buildingID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var mrchRegnos []string
+	for rows.Next() {
+		var mrchRegno sql.NullString
+		if err := rows.Scan(&mrchRegno); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
+			return
+		}
+		if mrchRegno.Valid {
+			mrchRegnos = append(mrchRegnos, mrchRegno.String)
+		}
+	}
+
+	if len(mrchRegnos) == 0 {
+		// No organizations found for this building
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"registered":                0,
+				"not_registered":            0,
+				"total":                     0,
+				"registered_percentage":     0,
+				"not_registered_percentage": 0,
+			},
+		})
+		return
+	}
+
+	// Build the IN clause for the query
+	placeholders := make([]string, len(mrchRegnos))
+	args := make([]interface{}, len(mrchRegnos)+1)
+	args[0] = buildingID
+
+	for i, regno := range mrchRegnos {
+		placeholders[i] = fmt.Sprintf(":%d", i+2)
+		args[i+1] = regno
+	}
+
+	// Query V_E_TUB_BRANCH to count registrations
+	registrationQuery := fmt.Sprintf(`
+		SELECT 
+			SUM(CASE WHEN TULUV = 'Бүртгэгдсэн' THEN 1 ELSE 0 END) as registered_count,
+			SUM(CASE WHEN TULUV = 'Бүртгэгдээгүй' THEN 1 ELSE 0 END) as not_registered_count,
+			COUNT(*) as total_count
+		FROM GPS.V_E_TUB_BRANCH 
+		WHERE REGISTER IN (%s)
+	`, strings.Join(placeholders, ","))
+
+	row := database.DB.QueryRow(registrationQuery, args[1:]...)
+
+	var registeredCount, notRegisteredCount, totalCount int
+	err = row.Scan(&registeredCount, &notRegisteredCount, &totalCount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Registration count error: " + err.Error()})
+		return
+	}
+
+	// Calculate percentages
+	var registeredPercentage, notRegisteredPercentage float64
+	if totalCount > 0 {
+		registeredPercentage = float64(registeredCount) / float64(totalCount) * 100
+		notRegisteredPercentage = float64(notRegisteredCount) / float64(totalCount) * 100
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"registered":                registeredCount,
+			"not_registered":            notRegisteredCount,
+			"total":                     totalCount,
+			"registered_percentage":     math.Round(registeredPercentage*100) / 100,
+			"not_registered_percentage": math.Round(notRegisteredPercentage*100) / 100,
+		},
+	})
+}
+
+// GetTaxOfficeStats returns tax office and district statistics for a building
+func GetTaxOfficeStats(c *gin.Context) {
+	buildingID := c.Param("id")
+	if buildingID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Building ID is required"})
+		return
+	}
+
+	// Query to get MRCH_REGNO from PAY_MARKET where PAY_CENTER_ID matches building ID
+	query := `
+		SELECT DISTINCT pm.MRCH_REGNO
+		FROM GPS.PAY_MARKET pm
+		WHERE pm.PAY_CENTER_ID = :1
+	`
+
+	rows, err := database.DB.Query(query, buildingID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var mrchRegnos []string
+	for rows.Next() {
+		var mrchRegno sql.NullString
+		if err := rows.Scan(&mrchRegno); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
+			return
+		}
+		if mrchRegno.Valid {
+			mrchRegnos = append(mrchRegnos, mrchRegno.String)
+		}
+	}
+
+	fmt.Printf("Found %d MRCH_REGNO values: %v\n", len(mrchRegnos), mrchRegnos)
+
+	if len(mrchRegnos) == 0 {
+		// No organizations found for this building
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"tax_offices": []gin.H{},
+				"districts":   []gin.H{},
+			},
+		})
+		return
+	}
+
+	// Create the regnoList for IN clause queries
+	regnoList := "'" + strings.Join(mrchRegnos, "','") + "'"
+
+	// Debug: Check if any records exist in V_E_TUB_BRANCH
+	// Use the same string concatenation approach as the main queries
+
+	debugQuery := fmt.Sprintf(`
+		SELECT COUNT(*) as total_records
+		FROM GPS.V_E_TUB_BRANCH 
+		WHERE REGISTER IN (%s)
+	`, regnoList)
+
+	var totalRecords int
+	err = database.DB.QueryRow(debugQuery).Scan(&totalRecords)
+	if err != nil {
+		fmt.Printf("Debug query error: %v\n", err)
+	} else {
+		fmt.Printf("Total records in V_E_TUB_BRANCH for these MRCH_REGNO: %d\n", totalRecords)
+
+		// Debug: Check TTA and DED_ALBA fields
+		if totalRecords > 0 {
+			sampleQuery := fmt.Sprintf(`
+				SELECT REGISTER, TTA, DED_ALBA
+				FROM GPS.V_E_TUB_BRANCH 
+				WHERE REGISTER IN (%s)
+				AND ROWNUM <= 5
+			`, regnoList)
+
+			sampleRows, err := database.DB.Query(sampleQuery)
+			if err != nil {
+				fmt.Printf("Sample query error: %v\n", err)
+			} else {
+				defer sampleRows.Close()
+				fmt.Println("Sample records from V_E_TUB_BRANCH:")
+				for sampleRows.Next() {
+					var reg, tta, dedAlba sql.NullString
+					if err := sampleRows.Scan(&reg, &tta, &dedAlba); err == nil {
+						fmt.Printf("  REGISTER: %s, TTA: %s, DED_ALBA: %s\n",
+							reg.String, tta.String, dedAlba.String)
+					}
+				}
+			}
+		}
+	}
+
+	// Query V_E_TUB_BRANCH to get TTA and DED_ALBA data
+	// Use a simpler approach with string concatenation for the IN clause
+
+	taxOfficeQuery := fmt.Sprintf(`
+		SELECT 
+			TTA,
+			COUNT(*) as count
+		FROM GPS.V_E_TUB_BRANCH 
+		WHERE REGISTER IN (%s) AND TTA IS NOT NULL AND LENGTH(TRIM(TTA)) > 0
+		GROUP BY TTA
+		ORDER BY count DESC
+	`, regnoList)
+
+	districtQuery := fmt.Sprintf(`
+		SELECT 
+			DED_ALBA,
+			COUNT(*) as count
+		FROM GPS.V_E_TUB_BRANCH 
+		WHERE REGISTER IN (%s) AND DED_ALBA IS NOT NULL AND LENGTH(TRIM(DED_ALBA)) > 0
+		GROUP BY DED_ALBA
+		ORDER BY count DESC
+	`, regnoList)
+
+	fmt.Printf("Tax office query: %s\n", taxOfficeQuery)
+	fmt.Printf("District query: %s\n", districtQuery)
+
+	// Execute tax office query
+	taxOfficeRows, err := database.DB.Query(taxOfficeQuery)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Tax office query error: " + err.Error()})
+		return
+	}
+	defer taxOfficeRows.Close()
+
+	var taxOffices []gin.H
+	for taxOfficeRows.Next() {
+		var tta sql.NullString
+		var count int
+		if err := taxOfficeRows.Scan(&tta, &count); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Tax office scan error: " + err.Error()})
+			return
+		}
+		if tta.Valid && tta.String != "" {
+			taxOffices = append(taxOffices, gin.H{
+				"name":  tta.String,
+				"count": count,
+			})
+		}
+	}
+
+	// Execute district query
+	districtRows, err := database.DB.Query(districtQuery)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "District query error: " + err.Error()})
+		return
+	}
+	defer districtRows.Close()
+
+	var districts []gin.H
+	for districtRows.Next() {
+		var dedAlba sql.NullString
+		var count int
+		if err := districtRows.Scan(&dedAlba, &count); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "District scan error: " + err.Error()})
+			return
+		}
+		if dedAlba.Valid && dedAlba.String != "" {
+			districts = append(districts, gin.H{
+				"name":  dedAlba.String,
+				"count": count,
+			})
+		}
+	}
+
+	fmt.Printf("Tax offices found: %d, Districts found: %d\n", len(taxOffices), len(districts))
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"tax_offices": taxOffices,
+			"districts":   districts,
+		},
+	})
+}
+
+// GetSegmentStats returns segment statistics for a building
+func GetSegmentStats(c *gin.Context) {
+	buildingID := c.Param("id")
+	if buildingID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Building ID is required"})
+		return
+	}
+
+	// Query to get MRCH_REGNO from PAY_MARKET where PAY_CENTER_ID matches building ID
+	query := `
+		SELECT DISTINCT pm.MRCH_REGNO
+		FROM GPS.PAY_MARKET pm
+		WHERE pm.PAY_CENTER_ID = :1
+	`
+
+	rows, err := database.DB.Query(query, buildingID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var mrchRegnos []string
+	for rows.Next() {
+		var mrchRegno sql.NullString
+		if err := rows.Scan(&mrchRegno); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
+			return
+		}
+		if mrchRegno.Valid {
+			mrchRegnos = append(mrchRegnos, mrchRegno.String)
+		}
+	}
+
+	if len(mrchRegnos) == 0 {
+		// No organizations found for this building
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    []gin.H{},
+		})
+		return
+	}
+
+	// Build the IN clause for the query
+	placeholders := make([]string, len(mrchRegnos))
+	args := make([]interface{}, len(mrchRegnos))
+
+	for i, regno := range mrchRegnos {
+		placeholders[i] = fmt.Sprintf(":%d", i+1)
+		args[i] = regno
+	}
+
+	// Query V_E_TUB_SEGMENT to get segment statistics
+	segmentQuery := fmt.Sprintf(`
+		SELECT 
+			SEGMENT,
+			COUNT(*) as count
+		FROM GPS.V_E_TUB_SEGMENT 
+		WHERE TRIM(UPPER(PIN)) IN (%s)
+		GROUP BY SEGMENT
+		ORDER BY count DESC
+	`, strings.Join(placeholders, ","))
+
+	rows, err = database.DB.Query(segmentQuery, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Segment query error: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var segments []gin.H
+	for rows.Next() {
+		var segment sql.NullString
+		var count int
+		if err := rows.Scan(&segment, &count); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Segment scan error: " + err.Error()})
+			return
+		}
+
+		segmentName := "Тодорхойгүй"
+		if segment.Valid && segment.String != "" {
+			segmentName = segment.String
+		}
+
+		segments = append(segments, gin.H{
+			"name":  segmentName,
+			"count": count,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    segments,
 	})
 }

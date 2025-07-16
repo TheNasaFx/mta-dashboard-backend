@@ -47,18 +47,20 @@ func GetAccountGeneralYearsHandler(c *gin.Context) {
 				}
 				results = append(results, r)
 			}
-			c.JSON(http.StatusOK, results)
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
 			return
 		} else if tab == "info" {
-			rows, err := db.Query("SELECT PIN, ENTITY_NAME FROM GPS.V_ACCOUNT_GENERAL_YEAR WHERE PIN = :1", regno)
+			// Account general year мэдээлэл - зөвхөн нэг мөр буцаана
+			rows, err := db.Query("SELECT DISTINCT PIN, ENTITY_NAME FROM GPS.V_ACCOUNT_GENERAL_YEAR WHERE PIN = :1", regno)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 			defer rows.Close()
 			type Info struct {
-				Pin        string `json:"pin"`
-				EntityName string `json:"entity_name"`
+				Pin          string `json:"pin"`
+				EntityName   string `json:"entity_name"`
+				EbarimtCount int    `json:"ebarimt_count"`
 			}
 			var results []Info
 			for rows.Next() {
@@ -69,7 +71,21 @@ func GetAccountGeneralYearsHandler(c *gin.Context) {
 				}
 				results = append(results, i)
 			}
-			c.JSON(http.StatusOK, results)
+
+			// Ebarimt тоог авах
+			var ebarimtCount int
+			err = db.QueryRow("SELECT COALESCE(MAX(CNT_3), 0) FROM GPS.V_E_TUB_PAY_MARKET_EBARIMT WHERE TRIM(UPPER(MRCH_REGNO)) = TRIM(UPPER(:1))", regno).Scan(&ebarimtCount)
+			if err != nil {
+				// Алдаа гарвал 0 болгоно
+				ebarimtCount = 0
+			}
+
+			// Ebarimt тоог бүх мөрөнд нэмэх
+			for i := range results {
+				results[i].EbarimtCount = ebarimtCount
+			}
+
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
 			return
 		} else if tab == "debt" {
 			rows, err := db.Query("SELECT C2_DEBIT FROM GPS.V_ACCOUNT_GENERAL_YEAR WHERE PIN = :1", regno)
@@ -89,9 +105,9 @@ func GetAccountGeneralYearsHandler(c *gin.Context) {
 					results = append(results, payable.String)
 				}
 			}
-			c.JSON(http.StatusOK, results)
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
 			return
 		}
 	}
-	c.JSON(http.StatusOK, []interface{}{})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": []interface{}{}})
 }

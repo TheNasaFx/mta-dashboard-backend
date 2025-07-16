@@ -93,8 +93,20 @@ func RegisterV1Routes(router *gin.Engine) {
 		// Debug endpoint for ebarimt mapping
 		v1.GET("/ebarimt-debug", handlers.GetEbarimtDebug)
 
+		// Ebarimt endpoint
+		v1.GET("/ebarimt/:pin", handlers.GetEbarimtByPin)
+
 		// Dashboard statistics endpoint
 		v1.GET("/statistics", handlers.GetDashboardStatistics)
+
+		// Registration statistics endpoint
+		v1.GET("/registration-stats/:id", handlers.GetRegistrationStats)
+
+		// Tax office statistics endpoint
+		v1.GET("/tax-office-stats/:id", handlers.GetTaxOfficeStats)
+
+		// Segment statistics endpoint
+		v1.GET("/segment-stats/:id", handlers.GetSegmentStats)
 
 		v1.GET("/organizations", handlers.ListOrganizations)
 

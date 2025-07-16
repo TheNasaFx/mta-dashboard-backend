@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"dashboard-backend/database"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -9,15 +10,18 @@ import (
 
 func GetPropertyOwnersHandler(c *gin.Context) {
 	regNum := c.Query("reg_num")
+	fmt.Printf("Property owner query for reg_num: %s\n", regNum)
 	if regNum == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "reg_num parameter is required"})
 		return
 	}
 
-	rows, err := database.DB.Query(`
+	query := `
 		SELECT PROPERTY_NUMBER, FULL_ADDRESS, PROPERTY_TYPE, TO_NUMBER(REPLACE(PROPERTY_SIZE, ',', '.')) AS PROPERTY_SIZE, CREATED_DATE, REG_NUM
 		FROM GPS.V_TPI_PROPERTY_XYP_DATA_OWNER 
-		WHERE REG_NUM = :1`, regNum)
+		WHERE REG_NUM = :1`
+	fmt.Printf("Executing query: %s with reg_num: %s\n", query, regNum)
+	rows, err := database.DB.Query(query, regNum)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
@@ -45,5 +49,6 @@ func GetPropertyOwnersHandler(c *gin.Context) {
 		results = append(results, result)
 	}
 
+	fmt.Printf("Found %d properties for reg_num: %s\n", len(results), regNum)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
 }
