@@ -96,6 +96,9 @@ func RegisterV1Routes(router *gin.Engine) {
 		// Ebarimt endpoint
 		v1.GET("/ebarimt/:pin", handlers.GetEbarimtByPin)
 
+		// Legacy ebarimt endpoint for backward compatibility
+		router.GET("/api/ebarimt/:pin", handlers.GetEbarimtByPin)
+
 		// Dashboard statistics endpoint
 		v1.GET("/statistics", handlers.GetDashboardStatistics)
 

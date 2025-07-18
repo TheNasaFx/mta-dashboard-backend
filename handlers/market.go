@@ -179,7 +179,7 @@ func GetBuildings(c *gin.Context) {
 // GetFloors returns all unique floors for a building (pay center)
 func GetFloors(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	rows, err := database.DB.Query(`SELECT DISTINCT STOR_FLOOR FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :id`, id)
+	rows, err := database.DB.Query(`SELECT DISTINCT STOR_FLOOR FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :id ORDER BY STOR_FLOOR`, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
@@ -194,14 +194,14 @@ func GetFloors(c *gin.Context) {
 		}
 		floors = append(floors, floor)
 	}
-	c.JSON(http.StatusOK, floors)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": floors})
 }
 
 // GetOrganizations returns all organizations for a building and floor
 func GetOrganizations(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	floor := c.Param("floor")
-	rows, err := database.DB.Query(`SELECT ID, OP_TYPE_NAME, DIST_CODE, KHO_CODE, STOR_NAME, STOR_FLOOR, MRCH_REGNO, PAY_CENTER_PROPERTY_ID, PAY_CENTER_ID, LAT, LNG FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :id AND STOR_FLOOR = :floor`, id, floor)
+	rows, err := database.DB.Query(`SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :id AND pm.STOR_FLOOR = :floor`, id, floor)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
@@ -221,8 +221,9 @@ func GetOrganizations(c *gin.Context) {
 			PayCenterID         int
 			Lat                 float64
 			Lng                 float64
+			BuildFloor          sql.NullInt64
 		}
-		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng); err != nil {
+		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng, &m.BuildFloor); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
@@ -238,16 +239,20 @@ func GetOrganizations(c *gin.Context) {
 			"pay_center_id":          m.PayCenterID,
 			"lat":                    m.Lat,
 			"lng":                    m.Lng,
+			"build_floor":            nil,
+		}
+		if m.BuildFloor.Valid {
+			orgMap["build_floor"] = int(m.BuildFloor.Int64)
 		}
 		orgs = append(orgs, orgMap)
 	}
-	c.JSON(http.StatusOK, orgs)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": orgs})
 }
 
 // GetAllOrganizations returns all organizations for a building (all floors)
 func GetAllOrganizations(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	rows, err := database.DB.Query(`SELECT ID, OP_TYPE_NAME, DIST_CODE, KHO_CODE, STOR_NAME, STOR_FLOOR, MRCH_REGNO, PAY_CENTER_PROPERTY_ID, PAY_CENTER_ID, LAT, LNG FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :id`, id)
+	rows, err := database.DB.Query(`SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :id`, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
@@ -267,8 +272,9 @@ func GetAllOrganizations(c *gin.Context) {
 			PayCenterID         int
 			Lat                 float64
 			Lng                 float64
+			BuildFloor          sql.NullInt64
 		}
-		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng); err != nil {
+		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng, &m.BuildFloor); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
@@ -284,6 +290,10 @@ func GetAllOrganizations(c *gin.Context) {
 			"pay_center_id":          m.PayCenterID,
 			"lat":                    m.Lat,
 			"lng":                    m.Lng,
+			"build_floor":            nil,
+		}
+		if m.BuildFloor.Valid {
+			orgMap["build_floor"] = int(m.BuildFloor.Int64)
 		}
 		orgs = append(orgs, orgMap)
 	}
@@ -304,7 +314,7 @@ func GetMarketsByPayCenterID(c *gin.Context) {
 		return
 	}
 
-	rows, err := database.DB.Query(`SELECT ID, OP_TYPE_NAME, DIST_CODE, KHO_CODE, STOR_NAME, STOR_FLOOR, MRCH_REGNO, PAY_CENTER_PROPERTY_ID, PAY_CENTER_ID, LAT, LNG FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :id`, id)
+	rows, err := database.DB.Query(`SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :id`, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
@@ -325,8 +335,9 @@ func GetMarketsByPayCenterID(c *gin.Context) {
 			PayCenterID         int
 			Lat                 float64
 			Lng                 float64
+			BuildFloor          sql.NullInt64
 		}
-		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng); err != nil {
+		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng, &m.BuildFloor); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
@@ -342,6 +353,10 @@ func GetMarketsByPayCenterID(c *gin.Context) {
 			"pay_center_id":          m.PayCenterID,
 			"lat":                    m.Lat,
 			"lng":                    m.Lng,
+			"build_floor":            nil,
+		}
+		if m.BuildFloor.Valid {
+			orgMap["build_floor"] = int(m.BuildFloor.Int64)
 		}
 		orgs = append(orgs, orgMap)
 	}

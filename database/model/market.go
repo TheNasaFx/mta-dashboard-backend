@@ -12,4 +12,5 @@ type Market struct {
 	PayCenterID         uint    `json:"pay_center_id"`
 	Lat                 float64 `json:"lat"`
 	Lng                 float64 `json:"lng"`
+	BuildFloor          *int    `json:"build_floor"`
 }

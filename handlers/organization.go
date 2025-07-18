@@ -104,7 +104,7 @@ func DeleteOrganization(c *gin.Context) {
 
 func ListOrganizations(c *gin.Context) {
 	db := database.DB
-	rows, err := db.Query("SELECT ID, NAME, REGNO, LNG, LAT FROM GPS.PAY_CENTER")
+	rows, err := db.Query("SELECT ID, NAME, REGNO, LNG, LAT, BUILD_FLOOR FROM GPS.PAY_CENTER")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -116,18 +116,20 @@ func ListOrganizations(c *gin.Context) {
 		var id int
 		var name, regno string
 		var lng, lat sql.NullFloat64
+		var buildFloor sql.NullInt64
 
-		if err := rows.Scan(&id, &name, &regno, &lng, &lat); err != nil {
+		if err := rows.Scan(&id, &name, &regno, &lng, &lat, &buildFloor); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		org := map[string]interface{}{
-			"id":    id,
-			"name":  name,
-			"regno": regno,
-			"lng":   nil,
-			"lat":   nil,
+			"id":          id,
+			"name":        name,
+			"regno":       regno,
+			"lng":         nil,
+			"lat":         nil,
+			"build_floor": nil,
 		}
 
 		if lng.Valid {
@@ -135,6 +137,9 @@ func ListOrganizations(c *gin.Context) {
 		}
 		if lat.Valid {
 			org["lat"] = lat.Float64
+		}
+		if buildFloor.Valid {
+			org["build_floor"] = int(buildFloor.Int64)
 		}
 
 		orgs = append(orgs, org)
@@ -163,10 +168,10 @@ func GetOrganizationsBatch(c *gin.Context) {
 	var args []interface{}
 
 	if floor != "" {
-		query = `SELECT ID, OP_TYPE_NAME, DIST_CODE, KHO_CODE, STOR_NAME, STOR_FLOOR, MRCH_REGNO, PAY_CENTER_PROPERTY_ID, PAY_CENTER_ID, LAT, LNG FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :1 AND STOR_FLOOR = :2`
+		query = `SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :1 AND pm.STOR_FLOOR = :2`
 		args = []interface{}{payCenterID, floor}
 	} else {
-		query = `SELECT ID, OP_TYPE_NAME, DIST_CODE, KHO_CODE, STOR_NAME, STOR_FLOOR, MRCH_REGNO, PAY_CENTER_PROPERTY_ID, PAY_CENTER_ID, LAT, LNG FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :1`
+		query = `SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :1`
 		args = []interface{}{payCenterID}
 	}
 
@@ -191,9 +196,10 @@ func GetOrganizationsBatch(c *gin.Context) {
 			payCenterID         int
 			lat                 sql.NullFloat64
 			lng                 sql.NullFloat64
+			buildFloor          sql.NullInt64
 		)
 
-		if err := rows.Scan(&id, &opTypeName, &distCode, &khoCode, &storName, &storFloor, &mrchRegno, &payCenterPropertyID, &payCenterID, &lat, &lng); err != nil {
+		if err := rows.Scan(&id, &opTypeName, &distCode, &khoCode, &storName, &storFloor, &mrchRegno, &payCenterPropertyID, &payCenterID, &lat, &lng, &buildFloor); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
@@ -210,6 +216,7 @@ func GetOrganizationsBatch(c *gin.Context) {
 			"pay_center_id":          payCenterID,
 			"lat":                    getFloatValue(lat),
 			"lng":                    getFloatValue(lng),
+			"build_floor":            getInt64Value(buildFloor),
 			"count_receipt":          0,  // Default for now
 			"report_submitted_date":  "", // Default for now
 			"payable_debit":          0,  // Default for now
