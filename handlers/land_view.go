@@ -84,3 +84,89 @@ func GetLandViewsHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
 }
+
+// GetAllLandDataHandler газрын мэдээллийн dashboard-д зориулсан функц
+func GetAllLandDataHandler(c *gin.Context) {
+	rows, err := database.DB.Query(`
+		SELECT PIN, AU2_NAME, AREA_M2, AREA_HA, NAME 
+		FROM GPS.V_E_TUB_LAND_VIEW`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var pin, au2Name, name *string
+		var areaM2, areaHA *float64
+
+		if err := rows.Scan(&pin, &au2Name, &areaM2, &areaHA, &name); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
+			return
+		}
+
+		result := map[string]interface{}{
+			"pii":      pin,
+			"au2_name": au2Name,
+			"area_m2":  areaM2,
+			"area_ha":  areaHA,
+			"name":     name,
+		}
+		results = append(results, result)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
+}
+
+// GetLandPaymentDataHandler газрын татвар төлөлтийн мэдээлэл
+func GetLandPaymentDataHandler(c *gin.Context) {
+	rows, err := database.DB.Query(`
+		SELECT 
+			l.PIN,
+			l.AU2_NAME,
+			p.BRANCH_CODE,
+			p.BRANCH_NAME,
+			p.SUB_BRANCH_CODE,
+			p.SUB_BRANCH_NAME,
+			p.TAX_TYPE_CODE,
+			p.TAX_TYPE_NAME,
+			p.AMOUNT
+		FROM (SELECT PIN, AU2_NAME FROM GPS.V_E_TUB_LAND_VIEW WHERE ROWNUM <= 10000) l
+		INNER JOIN GPS.V_E_TUB_PAYMENTS p ON l.PIN = p.PIN
+		WHERE p.TAX_TYPE_CODE IN ('01030703', '01030731')
+		AND ROWNUM <= 50000`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var pin, au2Name, branchCode, branchName *string
+		var subBranchCode, subBranchName, taxTypeCode, taxTypeName *string
+		var amount *float64
+
+		if err := rows.Scan(&pin, &au2Name, &branchCode, &branchName,
+			&subBranchCode, &subBranchName, &taxTypeCode, &taxTypeName, &amount); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
+			return
+		}
+
+		result := map[string]interface{}{
+			"pin":             pin,
+			"au2_name":        au2Name,
+			"branch_code":     branchCode,
+			"branch_name":     branchName,
+			"sub_branch_code": subBranchCode,
+			"sub_branch_name": subBranchName,
+			"tax_type_code":   taxTypeCode,
+			"tax_type_name":   taxTypeName,
+			"amount":          amount,
+		}
+		results = append(results, result)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": results})
+}

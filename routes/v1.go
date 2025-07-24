@@ -52,6 +52,12 @@ func RegisterV1Routes(router *gin.Engine) {
 		// LandView endpoint
 		v1.GET("/land-views", handlers.GetLandViewsHandler)
 
+		// Land data for dashboard
+		v1.GET("/land-data", handlers.GetAllLandDataHandler)
+
+		// Land payment data for dashboard
+		v1.GET("/land-payment-data", handlers.GetLandPaymentDataHandler)
+
 		// PropertyOwner endpoint
 		v1.GET("/property-owners", handlers.GetPropertyOwnersHandler)
 

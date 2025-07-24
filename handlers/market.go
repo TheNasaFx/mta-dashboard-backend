@@ -641,7 +641,7 @@ func GetDashboardStatistics(c *gin.Context) {
 	}
 	fmt.Printf("Total land area: %f\n", totalLandArea)
 
-	// 4. Хуулийн этгээд - PAY_MARKET-аас 7 оронтой MRCH_REGNO тоолох (CHANGED from 10 to 7)
+	// 4. Хуулийн этгээд - PAY_MARKET-аас 7 оронтой MRCH_REGNO тоолох (DISTINCT хийж давхардлыг арилгах)
 	err = database.DB.QueryRow(`
 		SELECT COUNT(DISTINCT MRCH_REGNO) 
 		FROM GPS.PAY_MARKET 
@@ -651,9 +651,9 @@ func GetDashboardStatistics(c *gin.Context) {
 		fmt.Printf("ERROR counting legal entities: %v\n", err)
 		totalLegalEntities = 0
 	}
-	fmt.Printf("Total legal entities: %d\n", totalLegalEntities)
+	fmt.Printf("Total legal entities (DISTINCT): %d\n", totalLegalEntities)
 
-	// 5. Иргэн - PAY_MARKET-аас 10 оронтой MRCH_REGNO тоолох (CHANGED from 7 to 10)
+	// 5. Иргэн - PAY_MARKET-аас 10 оронтой MRCH_REGNO тоолох (DISTINCT хийж давхардлыг арилгах)
 	err = database.DB.QueryRow(`
 		SELECT COUNT(DISTINCT MRCH_REGNO) 
 		FROM GPS.PAY_MARKET 
@@ -663,7 +663,7 @@ func GetDashboardStatistics(c *gin.Context) {
 		fmt.Printf("ERROR counting citizens: %v\n", err)
 		totalCitizens = 0
 	}
-	fmt.Printf("Total citizens: %d\n", totalCitizens)
+	fmt.Printf("Total citizens (DISTINCT): %d\n", totalCitizens)
 
 	// 6. Эзэмшигч - PAY_CENTER_PROPERTY-аас OWNER_REGNO unique тоолох
 	err = database.DB.QueryRow(`
@@ -677,17 +677,24 @@ func GetDashboardStatistics(c *gin.Context) {
 	}
 	fmt.Printf("Total owners: %d\n", totalOwners)
 
-	// 7. Түрээслэгч - PAY_MARKET доторх unique MRCH_REGNO тоолох
+	// 7. Түрээслэгч - PAY_MARKET доторх бүх DISTINCT MRCH_REGNO - Эзэмшигч тоо
+	var totalDistinctMrchRegnos int
 	err = database.DB.QueryRow(`
 		SELECT COUNT(DISTINCT MRCH_REGNO) 
 		FROM GPS.PAY_MARKET 
 		WHERE MRCH_REGNO IS NOT NULL
-	`).Scan(&totalTenants)
+	`).Scan(&totalDistinctMrchRegnos)
 	if err != nil {
-		fmt.Printf("ERROR counting tenants: %v\n", err)
+		fmt.Printf("ERROR counting distinct MRCH_REGNO: %v\n", err)
+		totalDistinctMrchRegnos = 0
+	}
+
+	// Түрээслэгч = Нийт DISTINCT MRCH_REGNO - Эзэмшигч
+	totalTenants = totalDistinctMrchRegnos - totalOwners
+	if totalTenants < 0 {
 		totalTenants = 0
 	}
-	fmt.Printf("Total tenants: %d\n", totalTenants)
+	fmt.Printf("Total distinct MRCH_REGNO: %d, Owners: %d, Tenants (calculated): %d\n", totalDistinctMrchRegnos, totalOwners, totalTenants)
 
 	// 8. Баримт хэвлэдэг - V_E_TUB_PAY_MARKET_EBARIMT доторх бүх мөрийг тоолох
 	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.V_E_TUB_PAY_MARKET_EBARIMT").Scan(&totalReceiptCount)
