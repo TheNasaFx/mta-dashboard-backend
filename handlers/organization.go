@@ -104,7 +104,7 @@ func DeleteOrganization(c *gin.Context) {
 
 func ListOrganizations(c *gin.Context) {
 	db := database.DB
-	rows, err := db.Query("SELECT ID, NAME, REGNO, LNG, LAT, BUILD_FLOOR FROM GPS.PAY_CENTER")
+	rows, err := db.Query("SELECT ID, NAME, REGNO, LNG, LAT, BUILD_FLOOR, PARCEL_ID, OFFICE_CODE, KHO_CODE, ADDRESS FROM GPS.PAY_CENTER")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -117,8 +117,9 @@ func ListOrganizations(c *gin.Context) {
 		var name, regno string
 		var lng, lat sql.NullFloat64
 		var buildFloor sql.NullInt64
+		var parcelId, officeCode, khoCode, address sql.NullString
 
-		if err := rows.Scan(&id, &name, &regno, &lng, &lat, &buildFloor); err != nil {
+		if err := rows.Scan(&id, &name, &regno, &lng, &lat, &buildFloor, &parcelId, &officeCode, &khoCode, &address); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -130,6 +131,10 @@ func ListOrganizations(c *gin.Context) {
 			"lng":         nil,
 			"lat":         nil,
 			"build_floor": nil,
+			"parcel_id":   nil,
+			"office_code": nil,
+			"kho_code":    nil,
+			"address":     nil,
 		}
 
 		if lng.Valid {
@@ -140,6 +145,18 @@ func ListOrganizations(c *gin.Context) {
 		}
 		if buildFloor.Valid {
 			org["build_floor"] = int(buildFloor.Int64)
+		}
+		if parcelId.Valid {
+			org["parcel_id"] = parcelId.String
+		}
+		if officeCode.Valid {
+			org["office_code"] = officeCode.String
+		}
+		if khoCode.Valid {
+			org["kho_code"] = khoCode.String
+		}
+		if address.Valid {
+			org["address"] = address.String
 		}
 
 		orgs = append(orgs, org)
@@ -168,10 +185,10 @@ func GetOrganizationsBatch(c *gin.Context) {
 	var args []interface{}
 
 	if floor != "" {
-		query = `SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :1 AND pm.STOR_FLOOR = :2`
+		query = `SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR, pc.PARCEL_ID FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :1 AND pm.STOR_FLOOR = :2`
 		args = []interface{}{payCenterID, floor}
 	} else {
-		query = `SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :1`
+		query = `SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR, pc.PARCEL_ID FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :1`
 		args = []interface{}{payCenterID}
 	}
 
@@ -197,9 +214,10 @@ func GetOrganizationsBatch(c *gin.Context) {
 			lat                 sql.NullFloat64
 			lng                 sql.NullFloat64
 			buildFloor          sql.NullInt64
+			parcelId            sql.NullString
 		)
 
-		if err := rows.Scan(&id, &opTypeName, &distCode, &khoCode, &storName, &storFloor, &mrchRegno, &payCenterPropertyID, &payCenterID, &lat, &lng, &buildFloor); err != nil {
+		if err := rows.Scan(&id, &opTypeName, &distCode, &khoCode, &storName, &storFloor, &mrchRegno, &payCenterPropertyID, &payCenterID, &lat, &lng, &buildFloor, &parcelId); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
@@ -217,6 +235,7 @@ func GetOrganizationsBatch(c *gin.Context) {
 			"lat":                    getFloatValue(lat),
 			"lng":                    getFloatValue(lng),
 			"build_floor":            getInt64Value(buildFloor),
+			"parcel_id":              getStringValue(parcelId),
 			"count_receipt":          0,  // Default for now
 			"report_submitted_date":  "", // Default for now
 			"payable_debit":          0,  // Default for now
@@ -243,6 +262,7 @@ func GetOrganizationDetail(c *gin.Context) {
 			"mrch_regno": mrchRegno,
 			"branch":     nil,
 			"segment":    nil,
+			"property":   nil, // Газрын мэдээлэл нэмсэн
 			"ebarimt": gin.H{
 				"cnt_3":  0,
 				"cnt_30": 0,
@@ -292,7 +312,34 @@ func GetOrganizationDetail(c *gin.Context) {
 		result["data"].(gin.H)["branch"] = branchData
 	}
 
-	// 2. V_E_TUB_SEGMENT мэдээлэл авах
+	// 2. V_TPI_PROPERTY_XYP_DATA_OWNER газрын мэдээлэл авах
+	propertyQuery := `SELECT FULL_ADDRESS 
+		FROM GPS.V_TPI_PROPERTY_XYP_DATA_OWNER 
+		WHERE TRIM(UPPER(REG_NUM)) = TRIM(UPPER(:1))`
+
+	propertyRows, err := database.DB.Query(propertyQuery, mrchRegno)
+	if err == nil {
+		defer propertyRows.Close()
+		properties := []gin.H{}
+		for propertyRows.Next() {
+			var fullAddress sql.NullString
+			if err := propertyRows.Scan(&fullAddress); err == nil {
+				if fullAddress.Valid && fullAddress.String != "" {
+					properties = append(properties, gin.H{
+						"full_address": fullAddress.String,
+					})
+				}
+			}
+		}
+		result["data"].(gin.H)["properties"] = properties
+		fmt.Printf("Found %d property records for %s\n", len(properties), mrchRegno)
+	} else {
+		fmt.Printf("Property query error for %s: %v\n", mrchRegno, err)
+		// Хоосон array үүсгэх
+		result["data"].(gin.H)["properties"] = []gin.H{}
+	}
+
+	// 3. V_E_TUB_SEGMENT мэдээлэл авах
 	segmentQuery := `SELECT SEGMENT, SEGMENT_YEAR 
 		FROM GPS.V_E_TUB_SEGMENT 
 		WHERE TRIM(UPPER(PIN)) = TRIM(UPPER(:1))`
@@ -314,7 +361,7 @@ func GetOrganizationDetail(c *gin.Context) {
 		result["data"].(gin.H)["segment"] = segmentData
 	}
 
-	// 3. Е-баримт мэдээлэл (өмнө хийсэн API-аас)
+	// 4. Е-баримт мэдээлэл (өмнө хийсэн API-аас)
 	ebarimtQuery := `SELECT 
 		COALESCE(SUM(CNT_3), 0) as CNT_3,
 		COALESCE(SUM(CNT_30), 0) as CNT_30
@@ -330,11 +377,11 @@ func GetOrganizationDetail(c *gin.Context) {
 		}
 	}
 
-	// 4. V_E_TUB_REPORT_DATA тайлангийн мэдээлэл
+	// 5. V_E_TUB_REPORT_DATA тайлангийн мэдээлэл - TAX_PERIOD-ээр sort хийж байна
 	reportQuery := `SELECT TAX_REPORT_CODE, FREQUENCY, TAX_YEAR, TAX_PERIOD, SUBMITTED_DATE 
 		FROM GPS.V_E_TUB_REPORT_DATA 
 		WHERE TRIM(UPPER(TIN)) = TRIM(UPPER(:1))
-		ORDER BY SUBMITTED_DATE DESC`
+		ORDER BY TAX_YEAR DESC, TAX_PERIOD DESC, SUBMITTED_DATE DESC`
 
 	rows, err := database.DB.Query(reportQuery, mrchRegno)
 	if err == nil {
@@ -365,7 +412,7 @@ func GetOrganizationDetail(c *gin.Context) {
 		result["data"].(gin.H)["reports"] = reports
 	}
 
-	// 5. V_E_TUB_PAYMENTS төлөлтийн мэдээлэл (PIN талбараар хайх)
+	// 6. V_E_TUB_PAYMENTS төлөлтийн мэдээлэл (PIN талбараар хайх)
 	paymentQuery := `SELECT INVOICE_NO, TAX_TYPE_NAME, BRANCH_NAME, AMOUNT, PAID_DATE 
 		FROM GPS.V_E_TUB_PAYMENTS 
 		WHERE TRIM(UPPER(PIN)) = TRIM(UPPER(:1))
@@ -405,7 +452,7 @@ func GetOrganizationDetail(c *gin.Context) {
 		result["data"].(gin.H)["payments"] = payments
 	}
 
-	// 6. V_ACCOUNT_GENERAL_YEAR өрийн мэдээлэл
+	// 7. V_ACCOUNT_GENERAL_YEAR өрийн мэдээлэл
 	debtQuery := `SELECT TAX_TYPE_NAME, YEAR, PERIOD_TYPE, BRANCH_NAME, C2_DEBIT 
 		FROM GPS.V_ACCOUNT_GENERAL_YEAR 
 		WHERE TRIM(UPPER(PIN)) = TRIM(UPPER(:1)) AND C2_DEBIT > 0

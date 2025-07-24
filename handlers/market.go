@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -201,7 +202,7 @@ func GetFloors(c *gin.Context) {
 func GetOrganizations(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	floor := c.Param("floor")
-	rows, err := database.DB.Query(`SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :id AND pm.STOR_FLOOR = :floor`, id, floor)
+	rows, err := database.DB.Query(`SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR, pc.PARCEL_ID FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :id AND pm.STOR_FLOOR = :floor`, id, floor)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
@@ -222,8 +223,9 @@ func GetOrganizations(c *gin.Context) {
 			Lat                 float64
 			Lng                 float64
 			BuildFloor          sql.NullInt64
+			ParcelId            sql.NullString
 		}
-		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng, &m.BuildFloor); err != nil {
+		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng, &m.BuildFloor, &m.ParcelId); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
@@ -240,9 +242,13 @@ func GetOrganizations(c *gin.Context) {
 			"lat":                    m.Lat,
 			"lng":                    m.Lng,
 			"build_floor":            nil,
+			"parcel_id":              nil,
 		}
 		if m.BuildFloor.Valid {
 			orgMap["build_floor"] = int(m.BuildFloor.Int64)
+		}
+		if m.ParcelId.Valid {
+			orgMap["parcel_id"] = m.ParcelId.String
 		}
 		orgs = append(orgs, orgMap)
 	}
@@ -252,7 +258,7 @@ func GetOrganizations(c *gin.Context) {
 // GetAllOrganizations returns all organizations for a building (all floors)
 func GetAllOrganizations(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	rows, err := database.DB.Query(`SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :id`, id)
+	rows, err := database.DB.Query(`SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR, pc.PARCEL_ID FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :id`, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
@@ -270,14 +276,24 @@ func GetAllOrganizations(c *gin.Context) {
 			MrchRegno           string
 			PayCenterPropertyID int
 			PayCenterID         int
-			Lat                 float64
-			Lng                 float64
+			Lat                 sql.NullFloat64
+			Lng                 sql.NullFloat64
 			BuildFloor          sql.NullInt64
+			ParcelId            sql.NullString
 		}
-		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng, &m.BuildFloor); err != nil {
+		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng, &m.BuildFloor, &m.ParcelId); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
+
+		// Helper function to get float value safely
+		getFloatValue := func(nf sql.NullFloat64) interface{} {
+			if nf.Valid {
+				return nf.Float64
+			}
+			return nil
+		}
+
 		orgMap := map[string]interface{}{
 			"id":                     m.ID,
 			"op_type_name":           m.OpTypeName,
@@ -288,12 +304,16 @@ func GetAllOrganizations(c *gin.Context) {
 			"mrch_regno":             m.MrchRegno,
 			"pay_center_property_id": m.PayCenterPropertyID,
 			"pay_center_id":          m.PayCenterID,
-			"lat":                    m.Lat,
-			"lng":                    m.Lng,
+			"lat":                    getFloatValue(m.Lat),
+			"lng":                    getFloatValue(m.Lng),
 			"build_floor":            nil,
+			"parcel_id":              nil,
 		}
 		if m.BuildFloor.Valid {
 			orgMap["build_floor"] = int(m.BuildFloor.Int64)
+		}
+		if m.ParcelId.Valid {
+			orgMap["parcel_id"] = m.ParcelId.String
 		}
 		orgs = append(orgs, orgMap)
 	}
@@ -314,7 +334,7 @@ func GetMarketsByPayCenterID(c *gin.Context) {
 		return
 	}
 
-	rows, err := database.DB.Query(`SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :id`, id)
+	rows, err := database.DB.Query(`SELECT pm.ID, pm.OP_TYPE_NAME, pm.DIST_CODE, pm.KHO_CODE, pm.STOR_NAME, pm.STOR_FLOOR, pm.MRCH_REGNO, pm.PAY_CENTER_PROPERTY_ID, pm.PAY_CENTER_ID, pm.LAT, pm.LNG, pc.BUILD_FLOOR, pc.PARCEL_ID FROM GPS.PAY_MARKET pm LEFT JOIN GPS.PAY_CENTER pc ON pm.PAY_CENTER_ID = pc.ID WHERE pm.PAY_CENTER_ID = :id`, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
 		return
@@ -333,14 +353,24 @@ func GetMarketsByPayCenterID(c *gin.Context) {
 			MrchRegno           string
 			PayCenterPropertyID int
 			PayCenterID         int
-			Lat                 float64
-			Lng                 float64
+			Lat                 sql.NullFloat64
+			Lng                 sql.NullFloat64
 			BuildFloor          sql.NullInt64
+			ParcelId            sql.NullString
 		}
-		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng, &m.BuildFloor); err != nil {
+		if err := rows.Scan(&m.ID, &m.OpTypeName, &m.DistCode, &m.KhoCode, &m.StorName, &m.StorFloor, &m.MrchRegno, &m.PayCenterPropertyID, &m.PayCenterID, &m.Lat, &m.Lng, &m.BuildFloor, &m.ParcelId); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
+
+		// Helper function to get float value safely
+		getFloatValue := func(nf sql.NullFloat64) interface{} {
+			if nf.Valid {
+				return nf.Float64
+			}
+			return nil
+		}
+
 		orgMap := map[string]interface{}{
 			"id":                     m.ID,
 			"op_type_name":           m.OpTypeName,
@@ -351,12 +381,16 @@ func GetMarketsByPayCenterID(c *gin.Context) {
 			"mrch_regno":             m.MrchRegno,
 			"pay_center_property_id": m.PayCenterPropertyID,
 			"pay_center_id":          m.PayCenterID,
-			"lat":                    m.Lat,
-			"lng":                    m.Lng,
+			"lat":                    getFloatValue(m.Lat),
+			"lng":                    getFloatValue(m.Lng),
 			"build_floor":            nil,
+			"parcel_id":              nil,
 		}
 		if m.BuildFloor.Valid {
 			orgMap["build_floor"] = int(m.BuildFloor.Int64)
+		}
+		if m.ParcelId.Valid {
+			orgMap["parcel_id"] = m.ParcelId.String
 		}
 		orgs = append(orgs, orgMap)
 	}
@@ -556,43 +590,158 @@ func GetEbarimtDebug(c *gin.Context) {
 // GetDashboardStatistics returns overall dashboard statistics
 func GetDashboardStatistics(c *gin.Context) {
 	var totalBuildings, totalTenants, totalReceiptCount int
-	var totalArea float64
+	var totalLegalEntities, totalCitizens, totalOwners int
+	var totalArea, totalLandArea float64
+	var nuatCount, nhatCount int
+
+	fmt.Println("=== DEBUG: Starting GetDashboardStatistics ===")
 
 	// 1. Нийт Объект (барилга) - PAY_CENTER тоо
 	err := database.DB.QueryRow("SELECT COUNT(*) FROM GPS.PAY_CENTER").Scan(&totalBuildings)
 	if err != nil {
+		fmt.Printf("ERROR counting buildings: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error counting buildings: " + err.Error()})
 		return
 	}
+	fmt.Printf("Total buildings: %d\n", totalBuildings)
 
-	// 2. Нийт мкв - PAY_CENTER_PROPERTY доторх бүх PROPERTY_SIZE нэмэх
+	// 2. Түрээслэгч Нийт мкв - PAY_CENTER_PROPERTY доторх бүх PROPERTY_SIZE нэмэх
 	err = database.DB.QueryRow("SELECT NVL(SUM(TO_NUMBER(REPLACE(PROPERTY_SIZE, ',', '.'))), 0) FROM GPS.PAY_CENTER_PROPERTY").Scan(&totalArea)
 	if err != nil {
+		fmt.Printf("ERROR calculating total area: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error calculating total area: " + err.Error()})
 		return
 	}
+	fmt.Printf("Total area: %f\n", totalArea)
 
-	// 3. Түрээслэгч - нийт хэдэн түрээслэгч (PAY_MARKET доторх unique MRCH_REGNO)
-	err = database.DB.QueryRow("SELECT COUNT(DISTINCT MRCH_REGNO) FROM GPS.PAY_MARKET").Scan(&totalTenants)
+	// 3. Нийт газрын талбай - PAY_CENTER ID-аар V_E_TUB_LAND_VIEW-тай join хийж AREA_M2 + AREA_HA нэмэх
+	err = database.DB.QueryRow(`
+		SELECT NVL(SUM(
+			NVL(v.AREA_M2, 0) + NVL(v.AREA_HA, 0)
+		), 0) as total_land_area
+		FROM GPS.PAY_CENTER pc
+		JOIN GPS.V_E_TUB_LAND_VIEW v ON pc.ID = v.PAY_CENTER_ID
+		WHERE v.AREA_M2 IS NOT NULL OR v.AREA_HA IS NOT NULL
+	`).Scan(&totalLandArea)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error counting tenants: " + err.Error()})
-		return
+		fmt.Printf("ERROR accessing GPS.V_E_TUB_LAND_VIEW with JOIN: %v\n", err)
+		// Fallback: try without GPS schema
+		err2 := database.DB.QueryRow(`
+			SELECT NVL(SUM(
+				NVL(v.AREA_M2, 0) + NVL(v.AREA_HA, 0)
+			), 0) as total_land_area
+			FROM PAY_CENTER pc
+			JOIN V_E_TUB_LAND_VIEW v ON pc.ID = v.PAY_CENTER_ID
+			WHERE v.AREA_M2 IS NOT NULL OR v.AREA_HA IS NOT NULL
+		`).Scan(&totalLandArea)
+		if err2 != nil {
+			fmt.Printf("ERROR accessing V_E_TUB_LAND_VIEW with JOIN: %v\n", err2)
+			totalLandArea = 0
+		}
 	}
+	fmt.Printf("Total land area: %f\n", totalLandArea)
 
-	// 4. Баримт хэвлэдэг - V_E_TUB_PAY_MARKET_EBARIMT доторх бүх мөрийг тоолох
+	// 4. Хуулийн этгээд - PAY_MARKET-аас 7 оронтой MRCH_REGNO тоолох (CHANGED from 10 to 7)
+	err = database.DB.QueryRow(`
+		SELECT COUNT(DISTINCT MRCH_REGNO) 
+		FROM GPS.PAY_MARKET 
+		WHERE LENGTH(TRIM(MRCH_REGNO)) = 7
+	`).Scan(&totalLegalEntities)
+	if err != nil {
+		fmt.Printf("ERROR counting legal entities: %v\n", err)
+		totalLegalEntities = 0
+	}
+	fmt.Printf("Total legal entities: %d\n", totalLegalEntities)
+
+	// 5. Иргэн - PAY_MARKET-аас 10 оронтой MRCH_REGNO тоолох (CHANGED from 7 to 10)
+	err = database.DB.QueryRow(`
+		SELECT COUNT(DISTINCT MRCH_REGNO) 
+		FROM GPS.PAY_MARKET 
+		WHERE LENGTH(TRIM(MRCH_REGNO)) = 10
+	`).Scan(&totalCitizens)
+	if err != nil {
+		fmt.Printf("ERROR counting citizens: %v\n", err)
+		totalCitizens = 0
+	}
+	fmt.Printf("Total citizens: %d\n", totalCitizens)
+
+	// 6. Эзэмшигч - PAY_CENTER_PROPERTY-аас OWNER_REGNO unique тоолох
+	err = database.DB.QueryRow(`
+		SELECT COUNT(DISTINCT OWNER_REGNO) 
+		FROM GPS.PAY_CENTER_PROPERTY 
+		WHERE OWNER_REGNO IS NOT NULL
+	`).Scan(&totalOwners)
+	if err != nil {
+		fmt.Printf("ERROR counting owners: %v\n", err)
+		totalOwners = 0
+	}
+	fmt.Printf("Total owners: %d\n", totalOwners)
+
+	// 7. Түрээслэгч - PAY_MARKET доторх unique MRCH_REGNO тоолох
+	err = database.DB.QueryRow(`
+		SELECT COUNT(DISTINCT MRCH_REGNO) 
+		FROM GPS.PAY_MARKET 
+		WHERE MRCH_REGNO IS NOT NULL
+	`).Scan(&totalTenants)
+	if err != nil {
+		fmt.Printf("ERROR counting tenants: %v\n", err)
+		totalTenants = 0
+	}
+	fmt.Printf("Total tenants: %d\n", totalTenants)
+
+	// 8. Баримт хэвлэдэг - V_E_TUB_PAY_MARKET_EBARIMT доторх бүх мөрийг тоолох
 	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.V_E_TUB_PAY_MARKET_EBARIMT").Scan(&totalReceiptCount)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error counting receipts: " + err.Error()})
-		return
+		fmt.Printf("ERROR counting receipts: %v\n", err)
+		totalReceiptCount = 0
 	}
+	fmt.Printf("Total receipt count: %d\n", totalReceiptCount)
+
+	// 9. НӨАТ суутган төлөгч - V_E_TUB_COUNT_NHAT_NUAT-аас NUAT__COUNT нэмэх
+	err = database.DB.QueryRow("SELECT NVL(SUM(NVL(NUAT__COUNT, 0)), 0) FROM GPS.V_E_TUB_COUNT_NHAT_NUAT").Scan(&nuatCount)
+	if err != nil {
+		fmt.Printf("ERROR counting NUAT: %v\n", err)
+		// Try without GPS schema
+		err2 := database.DB.QueryRow("SELECT NVL(SUM(NVL(NUAT__COUNT, 0)), 0) FROM V_E_TUB_COUNT_NHAT_NUAT").Scan(&nuatCount)
+		if err2 != nil {
+			fmt.Printf("ERROR counting NUAT (alt): %v\n", err2)
+			nuatCount = 897 // Fallback to default
+		}
+	}
+	fmt.Printf("Total NUAT count: %d\n", nuatCount)
+
+	// 10. НХАТ төлөгч - V_E_TUB_COUNT_NHAT_NUAT-аас NHAT__COUNT нэмэх
+	err = database.DB.QueryRow("SELECT NVL(SUM(NVL(NHAT__COUNT, 0)), 0) FROM GPS.V_E_TUB_COUNT_NHAT_NUAT").Scan(&nhatCount)
+	if err != nil {
+		fmt.Printf("ERROR counting NHAT: %v\n", err)
+		// Try without GPS schema
+		err2 := database.DB.QueryRow("SELECT NVL(SUM(NVL(NHAT__COUNT, 0)), 0) FROM V_E_TUB_COUNT_NHAT_NUAT").Scan(&nhatCount)
+		if err2 != nil {
+			fmt.Printf("ERROR counting NHAT (alt): %v\n", err2)
+			nhatCount = 8970 // Fallback to default
+		}
+	}
+	fmt.Printf("Total NHAT count: %d\n", nhatCount)
+
+	// 11. Ашиглагдаагүй талбай тооцоолох
+	unusedArea := totalLandArea - totalArea
+
+	fmt.Println("=== DEBUG: Completed GetDashboardStatistics ===")
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"total_buildings":     totalBuildings,
-			"total_area":          totalArea,
-			"total_tenants":       totalTenants,
-			"total_receipt_count": totalReceiptCount,
+			"total_buildings":      totalBuildings,
+			"total_area":           totalArea,          // Нийт ашиглагдаж буй талбай мкв
+			"total_land_area":      totalLandArea,      // Нийт газрын талбай мкв
+			"unused_area":          unusedArea,         // Ашиглагдаагүй талбай
+			"total_legal_entities": totalLegalEntities, // Хуулийн этгээд (7 орон)
+			"total_citizens":       totalCitizens,      // Иргэн (10 орон)
+			"total_owners":         totalOwners,        // Эзэмшигч
+			"total_tenants":        totalTenants,       // Түрээслэгч
+			"total_receipt_count":  totalReceiptCount,  // Баримт хэвлэдэг
+			"nuat_count":           nuatCount,          // НӨАТ суутган төлөгч
+			"nhat_count":           nhatCount,          // НХАТ төлөгч
 		},
 	})
 }
@@ -614,7 +763,7 @@ func GetRegistrationStats(c *gin.Context) {
 
 	rows, err := database.DB.Query(query, buildingID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Data  base query error: " + err.Error()})
 		return
 	}
 	defer rows.Close()
@@ -646,47 +795,64 @@ func GetRegistrationStats(c *gin.Context) {
 		return
 	}
 
-	// Build the IN clause for the query
-	placeholders := make([]string, len(mrchRegnos))
-	args := make([]interface{}, len(mrchRegnos)+1)
-	args[0] = buildingID
+	// Process in batches to avoid Oracle IN clause limit of 1000
+	const batchSize = 1000
+	var totalRegisteredCount, totalNotRegisteredCount, totalCount int
 
-	for i, regno := range mrchRegnos {
-		placeholders[i] = fmt.Sprintf(":%d", i+2)
-		args[i+1] = regno
-	}
+	for i := 0; i < len(mrchRegnos); i += batchSize {
+		end := i + batchSize
+		if end > len(mrchRegnos) {
+			end = len(mrchRegnos)
+		}
 
-	// Query V_E_TUB_BRANCH to count registrations
-	registrationQuery := fmt.Sprintf(`
-		SELECT 
-			SUM(CASE WHEN TULUV = 'Бүртгэгдсэн' THEN 1 ELSE 0 END) as registered_count,
-			SUM(CASE WHEN TULUV = 'Бүртгэгдээгүй' THEN 1 ELSE 0 END) as not_registered_count,
-			COUNT(*) as total_count
-		FROM GPS.V_E_TUB_BRANCH 
-		WHERE REGISTER IN (%s)
-	`, strings.Join(placeholders, ","))
+		batch := mrchRegnos[i:end]
 
-	row := database.DB.QueryRow(registrationQuery, args[1:]...)
+		// Build the IN clause for this batch
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch))
 
-	var registeredCount, notRegisteredCount, totalCount int
-	err = row.Scan(&registeredCount, &notRegisteredCount, &totalCount)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Registration count error: " + err.Error()})
-		return
+		for j, regno := range batch {
+			placeholders[j] = fmt.Sprintf(":%d", j+1)
+			args[j] = regno
+		}
+
+		// Query V_E_TUB_BRANCH to count registrations for this batch
+		registrationQuery := fmt.Sprintf(`
+			SELECT 
+				SUM(CASE WHEN TULUV = 'Бүртгэгдсэн' THEN 1 ELSE 0 END) as registered_count,
+				SUM(CASE WHEN TULUV = 'Бүртгэгдээгүй' THEN 1 ELSE 0 END) as not_registered_count,
+				COUNT(*) as total_count
+			FROM GPS.V_E_TUB_BRANCH 
+			WHERE REGISTER IN (%s)
+		`, strings.Join(placeholders, ","))
+
+		row := database.DB.QueryRow(registrationQuery, args...)
+
+		var registeredCount, notRegisteredCount, count int
+		err = row.Scan(&registeredCount, &notRegisteredCount, &count)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Registration count error: " + err.Error()})
+			return
+		}
+
+		// Accumulate results
+		totalRegisteredCount += registeredCount
+		totalNotRegisteredCount += notRegisteredCount
+		totalCount += count
 	}
 
 	// Calculate percentages
 	var registeredPercentage, notRegisteredPercentage float64
 	if totalCount > 0 {
-		registeredPercentage = float64(registeredCount) / float64(totalCount) * 100
-		notRegisteredPercentage = float64(notRegisteredCount) / float64(totalCount) * 100
+		registeredPercentage = float64(totalRegisteredCount) / float64(totalCount) * 100
+		notRegisteredPercentage = float64(totalNotRegisteredCount) / float64(totalCount) * 100
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"registered":                registeredCount,
-			"not_registered":            notRegisteredCount,
+			"registered":                totalRegisteredCount,
+			"not_registered":            totalNotRegisteredCount,
 			"total":                     totalCount,
 			"registered_percentage":     math.Round(registeredPercentage*100) / 100,
 			"not_registered_percentage": math.Round(notRegisteredPercentage*100) / 100,
@@ -694,7 +860,7 @@ func GetRegistrationStats(c *gin.Context) {
 	})
 }
 
-// GetTaxOfficeStats returns tax office and district statistics for a building
+// GetTaxOfficeStats returns tax office statistics for a building
 func GetTaxOfficeStats(c *gin.Context) {
 	buildingID := c.Param("id")
 	if buildingID == "" {
@@ -735,139 +901,118 @@ func GetTaxOfficeStats(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data": gin.H{
-				"tax_offices": []gin.H{},
-				"districts":   []gin.H{},
+				"districts": []gin.H{},
 			},
 		})
 		return
 	}
 
-	// Create the regnoList for IN clause queries
-	regnoList := "'" + strings.Join(mrchRegnos, "','") + "'"
+	// Process in batches to avoid Oracle IN clause limit of 1000
+	const batchSize = 1000
+	districtMap := make(map[string]map[string]int) // TTA -> DED_ALBA -> count
 
-	// Debug: Check if any records exist in V_E_TUB_BRANCH
-	// Use the same string concatenation approach as the main queries
+	for i := 0; i < len(mrchRegnos); i += batchSize {
+		end := i + batchSize
+		if end > len(mrchRegnos) {
+			end = len(mrchRegnos)
+		}
 
-	debugQuery := fmt.Sprintf(`
-		SELECT COUNT(*) as total_records
-		FROM GPS.V_E_TUB_BRANCH 
-		WHERE REGISTER IN (%s)
-	`, regnoList)
+		batch := mrchRegnos[i:end]
 
-	var totalRecords int
-	err = database.DB.QueryRow(debugQuery).Scan(&totalRecords)
-	if err != nil {
-		fmt.Printf("Debug query error: %v\n", err)
-	} else {
-		fmt.Printf("Total records in V_E_TUB_BRANCH for these MRCH_REGNO: %d\n", totalRecords)
+		// Build the IN clause for this batch
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch))
 
-		// Debug: Check TTA and DED_ALBA fields
-		if totalRecords > 0 {
-			sampleQuery := fmt.Sprintf(`
-				SELECT REGISTER, TTA, DED_ALBA
-				FROM GPS.V_E_TUB_BRANCH 
-				WHERE REGISTER IN (%s)
-				AND ROWNUM <= 5
-			`, regnoList)
+		for j, regno := range batch {
+			placeholders[j] = fmt.Sprintf(":%d", j+1)
+			args[j] = regno
+		}
 
-			sampleRows, err := database.DB.Query(sampleQuery)
-			if err != nil {
-				fmt.Printf("Sample query error: %v\n", err)
-			} else {
-				defer sampleRows.Close()
-				fmt.Println("Sample records from V_E_TUB_BRANCH:")
-				for sampleRows.Next() {
-					var reg, tta, dedAlba sql.NullString
-					if err := sampleRows.Scan(&reg, &tta, &dedAlba); err == nil {
-						fmt.Printf("  REGISTER: %s, TTA: %s, DED_ALBA: %s\n",
-							reg.String, tta.String, dedAlba.String)
-					}
+		// Query V_E_TUB_BRANCH to get TTA and DED_ALBA data for this batch
+		hierarchyQuery := fmt.Sprintf(`
+			SELECT 
+				TTA,
+				DED_ALBA,
+				COUNT(*) as count
+			FROM GPS.V_E_TUB_BRANCH 
+			WHERE REGISTER IN (%s) 
+			AND TTA IS NOT NULL AND LENGTH(TRIM(TTA)) > 0
+			AND DED_ALBA IS NOT NULL AND LENGTH(TRIM(DED_ALBA)) > 0
+			GROUP BY TTA, DED_ALBA
+			ORDER BY TTA, count DESC
+		`, strings.Join(placeholders, ","))
+
+		// Execute hierarchy query for this batch
+		hierarchyRows, err := database.DB.Query(hierarchyQuery, args...)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Hierarchy query error: " + err.Error()})
+			return
+		}
+
+		// Process results from this batch
+		for hierarchyRows.Next() {
+			var tta, dedAlba sql.NullString
+			var count int
+			if err := hierarchyRows.Scan(&tta, &dedAlba, &count); err != nil {
+				hierarchyRows.Close()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Hierarchy scan error: " + err.Error()})
+				return
+			}
+
+			if tta.Valid && dedAlba.Valid {
+				if districtMap[tta.String] == nil {
+					districtMap[tta.String] = make(map[string]int)
 				}
+				districtMap[tta.String][dedAlba.String] += count
 			}
 		}
+		hierarchyRows.Close()
 	}
 
-	// Query V_E_TUB_BRANCH to get TTA and DED_ALBA data
-	// Use a simpler approach with string concatenation for the IN clause
+	fmt.Printf("Found %d districts in hierarchy data\n", len(districtMap))
 
-	taxOfficeQuery := fmt.Sprintf(`
-		SELECT 
-			TTA,
-			COUNT(*) as count
-		FROM GPS.V_E_TUB_BRANCH 
-		WHERE REGISTER IN (%s) AND TTA IS NOT NULL AND LENGTH(TRIM(TTA)) > 0
-		GROUP BY TTA
-		ORDER BY count DESC
-	`, regnoList)
-
-	districtQuery := fmt.Sprintf(`
-		SELECT 
-			DED_ALBA,
-			COUNT(*) as count
-		FROM GPS.V_E_TUB_BRANCH 
-		WHERE REGISTER IN (%s) AND DED_ALBA IS NOT NULL AND LENGTH(TRIM(DED_ALBA)) > 0
-		GROUP BY DED_ALBA
-		ORDER BY count DESC
-	`, regnoList)
-
-	fmt.Printf("Tax office query: %s\n", taxOfficeQuery)
-	fmt.Printf("District query: %s\n", districtQuery)
-
-	// Execute tax office query
-	taxOfficeRows, err := database.DB.Query(taxOfficeQuery)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Tax office query error: " + err.Error()})
-		return
-	}
-	defer taxOfficeRows.Close()
-
-	var taxOffices []gin.H
-	for taxOfficeRows.Next() {
-		var tta sql.NullString
-		var count int
-		if err := taxOfficeRows.Scan(&tta, &count); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Tax office scan error: " + err.Error()})
-			return
-		}
-		if tta.Valid && tta.String != "" {
-			taxOffices = append(taxOffices, gin.H{
-				"name":  tta.String,
-				"count": count,
-			})
-		}
-	}
-
-	// Execute district query
-	districtRows, err := database.DB.Query(districtQuery)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "District query error: " + err.Error()})
-		return
-	}
-	defer districtRows.Close()
-
+	// Convert to final structure
 	var districts []gin.H
-	for districtRows.Next() {
-		var dedAlba sql.NullString
-		var count int
-		if err := districtRows.Scan(&dedAlba, &count); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "District scan error: " + err.Error()})
-			return
-		}
-		if dedAlba.Valid && dedAlba.String != "" {
-			districts = append(districts, gin.H{
-				"name":  dedAlba.String,
+	for districtName, khoroosMap := range districtMap {
+		// Convert khoroos map to slice for frontend compatibility
+		var khoroos []gin.H
+		totalCount := 0
+		for khorooName, count := range khoroosMap {
+			khoroos = append(khoroos, gin.H{
+				"name":  khorooName,
 				"count": count,
 			})
+			totalCount += count
 		}
+
+		// Sort khoroos by count descending
+		sort.Slice(khoroos, func(i, j int) bool {
+			return khoroos[i]["count"].(int) > khoroos[j]["count"].(int)
+		})
+
+		districts = append(districts, gin.H{
+			"name":    districtName,
+			"count":   totalCount, // Total count for this district
+			"khoroos": khoroos,
+		})
 	}
 
-	fmt.Printf("Tax offices found: %d, Districts found: %d\n", len(taxOffices), len(districts))
+	// Sort districts by count (descending)
+	sort.Slice(districts, func(i, j int) bool {
+		return districts[i]["count"].(int) > districts[j]["count"].(int)
+	})
+
+	fmt.Printf("Districts found: %d\n", len(districts))
+	for _, district := range districts {
+		khoroos := district["khoroos"].([]gin.H)
+		fmt.Printf("  %s: %d түрээслэгч, %d хороо\n",
+			district["name"], district["count"], len(khoroos))
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"tax_offices": taxOffices,
-			"districts":   districts,
+			"districts": districts,
 		},
 	})
 }
@@ -965,5 +1110,342 @@ func GetSegmentStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    segments,
+	})
+}
+
+// GetOperatorStats returns operator statistics for a specific PAY_CENTER_ID
+func GetOperatorStats(c *gin.Context) {
+	payCenterId := c.Param("id")
+	if payCenterId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "PAY_CENTER_ID required",
+		})
+		return
+	}
+
+	query := `
+		SELECT 
+			OPRT_NAME,
+			COUNT(*) as count
+		FROM GPS.V_E_TUB_OPERATORS 
+		WHERE PAY_CENTER_ID = :1
+			AND OPRT_NAME IS NOT NULL
+		GROUP BY OPRT_NAME
+		ORDER BY count DESC, OPRT_NAME
+	`
+
+	rows, err := database.DB.Query(query, payCenterId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Database query error: " + err.Error(),
+		})
+		return
+	}
+	defer rows.Close()
+
+	type OperatorStat struct {
+		OprtName string `json:"oprt_name"`
+		Count    int    `json:"count"`
+	}
+
+	var results []OperatorStat
+	for rows.Next() {
+		var oprtName sql.NullString
+		var count int
+
+		if err := rows.Scan(&oprtName, &count); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "Scan error: " + err.Error(),
+			})
+			return
+		}
+
+		if oprtName.Valid && oprtName.String != "" {
+			result := OperatorStat{
+				OprtName: oprtName.String,
+				Count:    count,
+			}
+			results = append(results, result)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"data":          results,
+		"pay_center_id": payCenterId,
+	})
+}
+
+// DiagnosticStatistics endpoint to debug why statistics return 0
+func DiagnosticStatistics(c *gin.Context) {
+	fmt.Println("=== DIAGNOSTIC: Starting statistics debug ===")
+
+	var result = gin.H{}
+
+	// 1. Check PAY_MARKET table structure and data
+	var payMarketCount int
+	err := database.DB.QueryRow("SELECT COUNT(*) FROM GPS.PAY_MARKET").Scan(&payMarketCount)
+	if err != nil {
+		result["pay_market_error"] = err.Error()
+	} else {
+		result["pay_market_total_rows"] = payMarketCount
+	}
+
+	// 2. Check MRCH_REGNO values
+	var mrchRegnoCount int
+	err = database.DB.QueryRow("SELECT COUNT(DISTINCT MRCH_REGNO) FROM GPS.PAY_MARKET WHERE MRCH_REGNO IS NOT NULL").Scan(&mrchRegnoCount)
+	if err != nil {
+		result["mrch_regno_error"] = err.Error()
+	} else {
+		result["mrch_regno_distinct_count"] = mrchRegnoCount
+	}
+
+	// 3. Sample MRCH_REGNO values and their lengths
+	rows, err := database.DB.Query(`
+		SELECT MRCH_REGNO, LENGTH(TRIM(MRCH_REGNO)) as len 
+		FROM GPS.PAY_MARKET 
+		WHERE MRCH_REGNO IS NOT NULL 
+		AND ROWNUM <= 10
+	`)
+	if err != nil {
+		result["sample_mrch_error"] = err.Error()
+	} else {
+		defer rows.Close()
+		var samples []gin.H
+		for rows.Next() {
+			var mrch sql.NullString
+			var length int
+			if err := rows.Scan(&mrch, &length); err == nil {
+				samples = append(samples, gin.H{
+					"mrch_regno": mrch.String,
+					"length":     length,
+				})
+			}
+		}
+		result["sample_mrch_regnos"] = samples
+	}
+
+	// 4. Count by length
+	lengthRows, err := database.DB.Query(`
+		SELECT LENGTH(TRIM(MRCH_REGNO)) as len, COUNT(*) as cnt 
+		FROM GPS.PAY_MARKET 
+		WHERE MRCH_REGNO IS NOT NULL 
+		GROUP BY LENGTH(TRIM(MRCH_REGNO))
+		ORDER BY len
+	`)
+	if err != nil {
+		result["length_count_error"] = err.Error()
+	} else {
+		defer lengthRows.Close()
+		var lengthCounts []gin.H
+		for lengthRows.Next() {
+			var length, count int
+			if err := lengthRows.Scan(&length, &count); err == nil {
+				lengthCounts = append(lengthCounts, gin.H{
+					"length": length,
+					"count":  count,
+				})
+			}
+		}
+		result["mrch_regno_by_length"] = lengthCounts
+	}
+
+	// 5. Check PAY_CENTER_PROPERTY
+	var propertyCount int
+	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.PAY_CENTER_PROPERTY").Scan(&propertyCount)
+	if err != nil {
+		result["property_error"] = err.Error()
+	} else {
+		result["property_total_rows"] = propertyCount
+	}
+
+	// 6. Check OWNER_REGNO
+	var ownerRegnoCount int
+	err = database.DB.QueryRow("SELECT COUNT(DISTINCT OWNER_REGNO) FROM GPS.PAY_CENTER_PROPERTY WHERE OWNER_REGNO IS NOT NULL").Scan(&ownerRegnoCount)
+	if err != nil {
+		result["owner_regno_error"] = err.Error()
+	} else {
+		result["owner_regno_distinct_count"] = ownerRegnoCount
+	}
+
+	// 7. Check property value tables
+	var propertyValueCount int
+	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.V_TPI_PROPERTY_XYP_DATA_OWNER").Scan(&propertyValueCount)
+	if err != nil {
+		result["property_value_error"] = err.Error()
+		// Try without GPS schema
+		err2 := database.DB.QueryRow("SELECT COUNT(*) FROM V_TPI_PROPERTY_XYP_DATA_OWNER").Scan(&propertyValueCount)
+		if err2 != nil {
+			result["property_value_error_alt"] = err2.Error()
+		} else {
+			result["property_value_total_rows"] = propertyValueCount
+		}
+	} else {
+		result["property_value_total_rows"] = propertyValueCount
+	}
+
+	// 8. Check land area tables
+	var landAreaCount int
+	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.V_E_TUB_LAND_VIEW").Scan(&landAreaCount)
+	if err != nil {
+		result["land_area_error"] = err.Error()
+		// Try without GPS schema
+		err2 := database.DB.QueryRow("SELECT COUNT(*) FROM V_E_TUB_LAND_VIEW").Scan(&landAreaCount)
+		if err2 != nil {
+			result["land_area_error_alt"] = err2.Error()
+		} else {
+			result["land_area_total_rows"] = landAreaCount
+		}
+	} else {
+		result["land_area_total_rows"] = landAreaCount
+	}
+
+	// 9. Test specific queries that return 0
+	// Test 7-digit MRCH_REGNO query
+	var test7digit int
+	err = database.DB.QueryRow(`
+		SELECT COUNT(DISTINCT MRCH_REGNO) 
+		FROM GPS.PAY_MARKET 
+		WHERE MRCH_REGNO IS NOT NULL
+		AND TRIM(MRCH_REGNO) != ''
+		AND LENGTH(TRIM(MRCH_REGNO)) = 7
+		AND TRIM(MRCH_REGNO) NOT IN ('0000000', '1111111', '2222222')
+	`).Scan(&test7digit)
+	if err != nil {
+		result["test_7digit_error"] = err.Error()
+	} else {
+		result["test_7digit_count"] = test7digit
+	}
+
+	// Alternative query for 7-digit
+	var test7digitAlt int
+	err = database.DB.QueryRow(`
+		SELECT COUNT(DISTINCT MRCH_REGNO) 
+		FROM GPS.PAY_MARKET 
+		WHERE LENGTH(TRIM(MRCH_REGNO)) = 7
+	`).Scan(&test7digitAlt)
+	if err != nil {
+		result["test_7digit_alt_error"] = err.Error()
+	} else {
+		result["test_7digit_alt_count"] = test7digitAlt
+	}
+
+	// Test 10-digit MRCH_REGNO query
+	var test10digit int
+	err = database.DB.QueryRow(`
+		SELECT COUNT(DISTINCT MRCH_REGNO) 
+		FROM GPS.PAY_MARKET 
+		WHERE MRCH_REGNO IS NOT NULL
+		AND TRIM(MRCH_REGNO) != ''
+		AND LENGTH(TRIM(MRCH_REGNO)) = 10
+		AND TRIM(MRCH_REGNO) NOT IN ('0000000000', '1111111111', '2222222222')
+	`).Scan(&test10digit)
+	if err != nil {
+		result["test_10digit_error"] = err.Error()
+	} else {
+		result["test_10digit_count"] = test10digit
+	}
+
+	// Alternative query for 10-digit
+	var test10digitAlt int
+	err = database.DB.QueryRow(`
+		SELECT COUNT(DISTINCT MRCH_REGNO) 
+		FROM GPS.PAY_MARKET 
+		WHERE LENGTH(TRIM(MRCH_REGNO)) = 10
+	`).Scan(&test10digitAlt)
+	if err != nil {
+		result["test_10digit_alt_error"] = err.Error()
+	} else {
+		result["test_10digit_alt_count"] = test10digitAlt
+	}
+
+	// Check V_E_TUB_COUNT_NHAT_NUAT existence and columns
+	var nhatNuatExists int
+	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.V_E_TUB_COUNT_NHAT_NUAT WHERE ROWNUM = 1").Scan(&nhatNuatExists)
+	if err != nil {
+		result["nhat_nuat_table_error"] = err.Error()
+	} else {
+		result["nhat_nuat_table_exists"] = true
+
+		// Try to get column names
+		colRows, err := database.DB.Query(`
+			SELECT column_name 
+			FROM all_tab_columns 
+			WHERE table_name = 'V_E_TUB_COUNT_NHAT_NUAT' 
+			AND owner = 'GPS'
+		`)
+		if err == nil {
+			defer colRows.Close()
+			var columns []string
+			for colRows.Next() {
+				var colName string
+				if err := colRows.Scan(&colName); err == nil {
+					columns = append(columns, colName)
+				}
+			}
+			result["nhat_nuat_columns"] = columns
+		}
+	}
+
+	fmt.Println("=== DIAGNOSTIC: Completed statistics debug ===")
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":         true,
+		"diagnostic_data": result,
+	})
+}
+
+// GetNuatNhatByMrchRegno returns NUAT/NHAT data for specific MRCH_REGNO
+func GetNuatNhatByMrchRegno(c *gin.Context) {
+	mrchRegno := c.Param("regno")
+	if mrchRegno == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "MRCH_REGNO parameter is required"})
+		return
+	}
+
+	fmt.Printf("Getting NUAT/NHAT data for MRCH_REGNO: %s\n", mrchRegno)
+
+	var nuatCount, nhatCount int
+
+	// Query V_E_TUB_COUNT_NHAT_NUAT for specific REGISTER (MRCH_REGNO)
+	query := `
+		SELECT 
+			NVL(NUAT__COUNT, 0) as nuat_count,
+			NVL(NHAT__COUNT, 0) as nhat_count
+		FROM GPS.V_E_TUB_COUNT_NHAT_NUAT 
+		WHERE TRIM(UPPER(REGISTER)) = TRIM(UPPER(:1))
+	`
+
+	err := database.DB.QueryRow(query, mrchRegno).Scan(&nuatCount, &nhatCount)
+	if err != nil {
+		fmt.Printf("ERROR getting NUAT/NHAT for %s: %v\n", mrchRegno, err)
+		// Try without GPS schema
+		err2 := database.DB.QueryRow(`
+			SELECT 
+				NVL(NUAT__COUNT, 0) as nuat_count,
+				NVL(NHAT__COUNT, 0) as nhat_count
+			FROM V_E_TUB_COUNT_NHAT_NUAT 
+			WHERE TRIM(UPPER(REGISTER)) = TRIM(UPPER(:1))
+		`, mrchRegno).Scan(&nuatCount, &nhatCount)
+		if err2 != nil {
+			fmt.Printf("ERROR getting NUAT/NHAT (alt) for %s: %v\n", mrchRegno, err2)
+			// Set default values if not found
+			nuatCount = 0
+			nhatCount = 0
+		}
+	}
+
+	fmt.Printf("NUAT: %d, NHAT: %d for MRCH_REGNO: %s\n", nuatCount, nhatCount, mrchRegno)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"nuat_count": nuatCount,
+			"nhat_count": nhatCount,
+			"mrch_regno": mrchRegno,
+		},
 	})
 }

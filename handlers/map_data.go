@@ -50,49 +50,114 @@ func GetMapDataHandler(c *gin.Context) {
 		return
 	}
 
+	fmt.Printf("Getting map data for PAY_CENTER_ID: %d\n", id)
+
+	// Debug: Check if PAY_CENTER exists
+	var centerExists int
+	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.PAY_CENTER WHERE ID = :1", id).Scan(&centerExists)
+	if err != nil {
+		fmt.Printf("PAY_CENTER check error: %v\n", err)
+	}
+	fmt.Printf("PAY_CENTER exists: %d\n", centerExists)
+
+	// Debug: Check total records in PAY_CENTER_PROPERTY
+	var totalPropertyRecords int
+	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.PAY_CENTER_PROPERTY").Scan(&totalPropertyRecords)
+	if err == nil {
+		fmt.Printf("Total PAY_CENTER_PROPERTY records: %d\n", totalPropertyRecords)
+	}
+
+	// Debug: Check records for this pay_center_id
+	var propertyRecordsForCenter int
+	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.PAY_CENTER_PROPERTY WHERE PAY_CENTER_ID = :1", id).Scan(&propertyRecordsForCenter)
+	if err == nil {
+		fmt.Printf("PAY_CENTER_PROPERTY records for ID %d: %d\n", id, propertyRecordsForCenter)
+	}
+
+	// Debug: Check PAY_MARKET records
+	var marketRecordsForCenter int
+	err = database.DB.QueryRow("SELECT COUNT(*) FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :1", id).Scan(&marketRecordsForCenter)
+	if err == nil {
+		fmt.Printf("PAY_MARKET records for ID %d: %d\n", id, marketRecordsForCenter)
+	}
+
 	// Query owner count
 	var ownerCount int
 	ownerQuery := `SELECT COUNT(DISTINCT OWNER_REGNO) FROM GPS.PAY_CENTER_PROPERTY WHERE PAY_CENTER_ID = :1`
 	err = database.DB.QueryRow(ownerQuery, id).Scan(&ownerCount)
 	if err != nil {
+		fmt.Printf("Owner count query error: %v\n", err)
 		ownerCount = 0
 	}
+	fmt.Printf("Owner count: %d\n", ownerCount)
 
 	// Query activity operators (total records)
 	var activityOperators int
 	activityQuery := `SELECT COUNT(*) FROM GPS.PAY_CENTER_PROPERTY WHERE PAY_CENTER_ID = :1`
 	err = database.DB.QueryRow(activityQuery, id).Scan(&activityOperators)
 	if err != nil {
+		fmt.Printf("Activity operators query error: %v\n", err)
 		activityOperators = 0
 	}
+	fmt.Printf("Activity operators: %d\n", activityOperators)
 
 	// Query total area
 	var area float64
 	areaQuery := `SELECT NVL(SUM(PROPERTY_SIZE), 0) FROM GPS.PAY_CENTER_PROPERTY WHERE PAY_CENTER_ID = :1`
 	err = database.DB.QueryRow(areaQuery, id).Scan(&area)
 	if err != nil {
+		fmt.Printf("Area query error: %v\n", err)
 		area = 0
 	}
+	fmt.Printf("Total area: %f\n", area)
 
-	// Query tenants count (PAY_MARKET records - unique owners)
+	// Query land area from V_E_TUB_LAND_VIEW (AREA_M2 + AREA_HA)
+	var landArea float64
+	landAreaQuery := `
+		SELECT NVL(SUM(
+			NVL(AREA_M2, 0) + NVL(AREA_HA, 0)
+		), 0) as land_area
+		FROM GPS.V_E_TUB_LAND_VIEW 
+		WHERE PAY_CENTER_ID = :1
+	`
+	err = database.DB.QueryRow(landAreaQuery, id).Scan(&landArea)
+	if err != nil {
+		fmt.Printf("Land area query error: %v\n", err)
+		// Try without GPS schema
+		err2 := database.DB.QueryRow(`
+			SELECT NVL(SUM(
+				NVL(AREA_M2, 0) + NVL(AREA_HA, 0)
+			), 0) as land_area
+			FROM V_E_TUB_LAND_VIEW 
+			WHERE PAY_CENTER_ID = :1
+		`, id).Scan(&landArea)
+		if err2 != nil {
+			fmt.Printf("Land area query error (alt): %v\n", err2)
+			landArea = 0
+		}
+	}
+	fmt.Printf("Total land area: %f\n", landArea)
+
+	// Calculate unused area
+	unusedArea := landArea - area
+	fmt.Printf("Unused area: %f\n", unusedArea)
+
+	// Query tenants count (PAY_MARKET records - unique tenants)
 	var tenants int
-	tenantsQuery := `
-		SELECT COUNT(DISTINCT pm.MRCH_REGNO) - NVL(
-			(SELECT COUNT(DISTINCT pcp.OWNER_REGNO) 
-			 FROM GPS.PAY_CENTER_PROPERTY pcp 
-			 WHERE pcp.PAY_CENTER_ID = :1), 0
-		) as tenants
-		FROM GPS.PAY_MARKET pm 
-		WHERE pm.PAY_CENTER_ID = :1`
+	tenantsQuery := `SELECT COUNT(DISTINCT MRCH_REGNO) FROM GPS.PAY_MARKET WHERE PAY_CENTER_ID = :1`
 	err = database.DB.QueryRow(tenantsQuery, id).Scan(&tenants)
-	if err != nil || tenants < 0 {
+	if err != nil {
+		fmt.Printf("Tenants query error: %v\n", err)
 		tenants = 0
 	}
+	fmt.Printf("Tenants count: %d\n", tenants)
 
 	result := map[string]interface{}{
 		"owner_count":        ownerCount,
 		"activity_operators": activityOperators,
-		"area":               area,
+		"area":               area,       // Ашиглагдаж байгаа талбай (мкв)
+		"land_area":          landArea,   // Газрын талбай (мкв)
+		"unused_area":        unusedArea, // Ашиглагдаагүй талбай (мкв)
 		"tenants":            tenants,
 	}
 
@@ -162,16 +227,20 @@ func GetMapDataBatchHandler(c *gin.Context) {
 
 		batchQuery := fmt.Sprintf(`
 			SELECT 
-				PAY_CENTER_ID,
-				COUNT(DISTINCT OWNER_REGNO) as OWNER_COUNT,
+				pcp.PAY_CENTER_ID,
+				COUNT(DISTINCT pcp.OWNER_REGNO) as OWNER_COUNT,
 				COUNT(*) as ACTIVITY_OPERATORS,
-				NVL(SUM(PROPERTY_SIZE), 0) as AREA,
-				(SELECT COUNT(DISTINCT MRCH_REGNO) 
-				 FROM GPS.PAY_MARKET pm2 
-				 WHERE pm2.PAY_CENTER_ID = pcp.PAY_CENTER_ID) - COUNT(DISTINCT OWNER_REGNO) as TENANTS
+				NVL(SUM(pcp.PROPERTY_SIZE), 0) as AREA,
+				NVL((SELECT COUNT(DISTINCT pm.MRCH_REGNO) 
+				     FROM GPS.PAY_MARKET pm 
+				     WHERE pm.PAY_CENTER_ID = pcp.PAY_CENTER_ID), 0) as TENANTS,
+				NVL((SELECT SUM(
+					NVL(lv.AREA_M2, 0) + NVL(lv.AREA_HA, 0)
+				) FROM GPS.V_E_TUB_LAND_VIEW lv 
+				WHERE lv.PAY_CENTER_ID = pcp.PAY_CENTER_ID), 0) as LAND_AREA
 			FROM GPS.PAY_CENTER_PROPERTY pcp 
-			WHERE PAY_CENTER_ID IN (%s)
-			GROUP BY PAY_CENTER_ID`, strings.Join(placeholders, ","))
+			WHERE pcp.PAY_CENTER_ID IN (%s)
+			GROUP BY pcp.PAY_CENTER_ID`, strings.Join(placeholders, ","))
 
 		rows, err := database.DB.Query(batchQuery, args...)
 		if err != nil {
@@ -183,21 +252,21 @@ func GetMapDataBatchHandler(c *gin.Context) {
 		mapCacheMutex.Lock()
 		for rows.Next() {
 			var payCenterID, ownerCount, activityOperators, tenants int
-			var area float64
+			var area, landArea float64
 
-			if err := rows.Scan(&payCenterID, &ownerCount, &activityOperators, &area, &tenants); err != nil {
+			if err := rows.Scan(&payCenterID, &ownerCount, &activityOperators, &area, &tenants, &landArea); err != nil {
 				continue // Skip errors for individual rows
 			}
 
-			// Ensure tenants is not negative
-			if tenants < 0 {
-				tenants = 0
-			}
+			// Calculate unused area
+			unusedArea := landArea - area
 
 			mapData := map[string]interface{}{
 				"owner_count":        ownerCount,
 				"activity_operators": activityOperators,
-				"area":               area,
+				"area":               area,       // Ашиглагдаж байгаа талбай (мкв)
+				"land_area":          landArea,   // Газрын талбай (мкв)
+				"unused_area":        unusedArea, // Ашиглагдаагүй талбай (мкв)
 				"tenants":            tenants,
 			}
 
@@ -226,6 +295,8 @@ func GetMapDataBatchHandler(c *gin.Context) {
 						"owner_count":        0,
 						"activity_operators": 0,
 						"area":               0,
+						"land_area":          0,
+						"unused_area":        0,
 						"tenants":            0,
 					},
 				}

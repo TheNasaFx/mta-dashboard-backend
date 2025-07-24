@@ -102,6 +102,9 @@ func RegisterV1Routes(router *gin.Engine) {
 		// Dashboard statistics endpoint
 		v1.GET("/statistics", handlers.GetDashboardStatistics)
 
+		// Diagnostic statistics endpoint
+		v1.GET("/diagnostic-statistics", handlers.DiagnosticStatistics)
+
 		// Registration statistics endpoint
 		v1.GET("/registration-stats/:id", handlers.GetRegistrationStats)
 
@@ -115,5 +118,15 @@ func RegisterV1Routes(router *gin.Engine) {
 
 		// Organization detail endpoint
 		v1.GET("/organization-detail/:regno", handlers.GetOrganizationDetail)
+
+		// NUAT/NHAT data endpoint
+		v1.GET("/nuat-nhat/:regno", handlers.GetNuatNhatByMrchRegno)
+
+		// Reports endpoint
+		v1.GET("/reports/activity-by-district", handlers.GetActivityReportsByDistrict)
+		v1.GET("/reports/activity-by-pay-center/:id", handlers.GetActivityReportsByPayCenter)
+
+		// Operator stats endpoint
+		v1.GET("/operators/stats/:id", handlers.GetOperatorStats)
 	}
 }
