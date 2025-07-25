@@ -134,5 +134,9 @@ func RegisterV1Routes(router *gin.Engine) {
 
 		// Operator stats endpoint
 		v1.GET("/operators/stats/:id", handlers.GetOperatorStats)
+
+		// Real Estate endpoints
+		v1.GET("/real-estate/statistics", handlers.GetRealEstateStatistics)
+		v1.GET("/real-estate/data", handlers.GetRealEstateData)
 	}
 }

@@ -88,7 +88,7 @@ func GetLandViewsHandler(c *gin.Context) {
 // GetAllLandDataHandler газрын мэдээллийн dashboard-д зориулсан функц
 func GetAllLandDataHandler(c *gin.Context) {
 	rows, err := database.DB.Query(`
-		SELECT PIN, AU2_NAME, AREA_M2, AREA_HA, NAME 
+		SELECT PIN, AU2_NAME, AREA_M2, NAME 
 		FROM GPS.V_E_TUB_LAND_VIEW`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB query error: " + err.Error()})
@@ -99,9 +99,9 @@ func GetAllLandDataHandler(c *gin.Context) {
 	var results []map[string]interface{}
 	for rows.Next() {
 		var pin, au2Name, name *string
-		var areaM2, areaHA *float64
+		var areaM2 *float64
 
-		if err := rows.Scan(&pin, &au2Name, &areaM2, &areaHA, &name); err != nil {
+		if err := rows.Scan(&pin, &au2Name, &areaM2, &name); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Scan error: " + err.Error()})
 			return
 		}
@@ -110,7 +110,6 @@ func GetAllLandDataHandler(c *gin.Context) {
 			"pii":      pin,
 			"au2_name": au2Name,
 			"area_m2":  areaM2,
-			"area_ha":  areaHA,
 			"name":     name,
 		}
 		results = append(results, result)

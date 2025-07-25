@@ -111,11 +111,11 @@ func GetMapDataHandler(c *gin.Context) {
 	}
 	fmt.Printf("Total area: %f\n", area)
 
-	// Query land area from V_E_TUB_LAND_VIEW (AREA_M2 + AREA_HA)
+	// Query land area from V_E_TUB_LAND_VIEW (AREA_M2)
 	var landArea float64
 	landAreaQuery := `
 		SELECT NVL(SUM(
-			NVL(AREA_M2, 0) + NVL(AREA_HA, 0)
+			NVL(AREA_M2, 0)
 		), 0) as land_area
 		FROM GPS.V_E_TUB_LAND_VIEW 
 		WHERE PAY_CENTER_ID = :1
@@ -126,7 +126,7 @@ func GetMapDataHandler(c *gin.Context) {
 		// Try without GPS schema
 		err2 := database.DB.QueryRow(`
 			SELECT NVL(SUM(
-				NVL(AREA_M2, 0) + NVL(AREA_HA, 0)
+				NVL(AREA_M2, 0)
 			), 0) as land_area
 			FROM V_E_TUB_LAND_VIEW 
 			WHERE PAY_CENTER_ID = :1
@@ -235,7 +235,7 @@ func GetMapDataBatchHandler(c *gin.Context) {
 				     FROM GPS.PAY_MARKET pm 
 				     WHERE pm.PAY_CENTER_ID = pcp.PAY_CENTER_ID), 0) as TENANTS,
 				NVL((SELECT SUM(
-					NVL(lv.AREA_M2, 0) + NVL(lv.AREA_HA, 0)
+					NVL(lv.AREA_M2, 0)
 				) FROM GPS.V_E_TUB_LAND_VIEW lv 
 				WHERE lv.PAY_CENTER_ID = pcp.PAY_CENTER_ID), 0) as LAND_AREA
 			FROM GPS.PAY_CENTER_PROPERTY pcp 

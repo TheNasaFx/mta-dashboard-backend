@@ -614,25 +614,25 @@ func GetDashboardStatistics(c *gin.Context) {
 	}
 	fmt.Printf("Total area: %f\n", totalArea)
 
-	// 3. Нийт газрын талбай - PAY_CENTER ID-аар V_E_TUB_LAND_VIEW-тай join хийж AREA_M2 + AREA_HA нэмэх
+	// 3. Нийт газрын талбай - PAY_CENTER ID-аар V_E_TUB_LAND_VIEW-тай join хийж AREA_M2 ашиглах
 	err = database.DB.QueryRow(`
 		SELECT NVL(SUM(
-			NVL(v.AREA_M2, 0) + NVL(v.AREA_HA, 0)
+			NVL(v.AREA_M2, 0)
 		), 0) as total_land_area
 		FROM GPS.PAY_CENTER pc
 		JOIN GPS.V_E_TUB_LAND_VIEW v ON pc.ID = v.PAY_CENTER_ID
-		WHERE v.AREA_M2 IS NOT NULL OR v.AREA_HA IS NOT NULL
+		WHERE v.AREA_M2 IS NOT NULL
 	`).Scan(&totalLandArea)
 	if err != nil {
 		fmt.Printf("ERROR accessing GPS.V_E_TUB_LAND_VIEW with JOIN: %v\n", err)
 		// Fallback: try without GPS schema
 		err2 := database.DB.QueryRow(`
 			SELECT NVL(SUM(
-				NVL(v.AREA_M2, 0) + NVL(v.AREA_HA, 0)
+				NVL(v.AREA_M2, 0)
 			), 0) as total_land_area
 			FROM PAY_CENTER pc
 			JOIN V_E_TUB_LAND_VIEW v ON pc.ID = v.PAY_CENTER_ID
-			WHERE v.AREA_M2 IS NOT NULL OR v.AREA_HA IS NOT NULL
+			WHERE v.AREA_M2 IS NOT NULL
 		`).Scan(&totalLandArea)
 		if err2 != nil {
 			fmt.Printf("ERROR accessing V_E_TUB_LAND_VIEW with JOIN: %v\n", err2)
